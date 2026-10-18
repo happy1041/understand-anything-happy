@@ -3,6 +3,10 @@ name: understand-onboard
 description: Use when you need to generate an onboarding guide for new team members joining a project
 ---
 
+## Local engineering integration
+
+For engineering research, simulation, implementation, project explanation or evidence maintenance, also read [../understand/engineering/guide.md](../understand/engineering/guide.md). This is a supplement to the workflow below. **If the engineering supplement conflicts with Understand Anything, follow Understand Anything.** Preserve the upstream commands, graph schema and analysis/update stages. Use project evidence to distinguish implementation structure from experimentally validated behavior.
+
 # /understand-onboard
 
 Generate a comprehensive onboarding guide from the project's knowledge graph.

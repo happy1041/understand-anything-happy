@@ -1,8 +1,13 @@
 ---
 name: understand
-description: Analyze a codebase to produce an interactive knowledge graph for understanding architecture, components, and relationships
-argument-hint: ["[path] [--full|--auto-update|--no-auto-update|--review|--language <lang>|--exclude <patterns>]"]
+description: Analyze codebases with interactive knowledge graphs, architecture tours and change-impact analysis; connect engineering mechanisms, decisions and experimental evidence to concise project knowledge.
+metadata:
+  argument-hint: ["[path] [--full|--auto-update|--no-auto-update|--review|--language <lang>|--exclude <patterns>]"]
 ---
+
+## Local engineering integration
+
+For engineering research, simulation, implementation, project explanation or evidence maintenance, also read [engineering/guide.md](engineering/guide.md). This is a supplement to the workflow below. **If the engineering supplement conflicts with Understand Anything, follow Understand Anything.** Preserve the upstream commands, graph schema and analysis/update stages. Use project evidence to distinguish implementation structure from experimentally validated behavior.
 
 # /understand
 

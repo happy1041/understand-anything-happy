@@ -1,8 +1,13 @@
 ---
 name: understand-domain
 description: Extract business domain knowledge from a codebase and generate an interactive domain flow graph. Works standalone (lightweight scan) or derives from an existing /understand knowledge graph.
-argument-hint: "[--full]"
+metadata:
+  argument-hint: "[--full]"
 ---
+
+## Local engineering integration
+
+For engineering research, simulation, implementation, project explanation or evidence maintenance, also read [../understand/engineering/guide.md](../understand/engineering/guide.md). This is a supplement to the workflow below. **If the engineering supplement conflicts with Understand Anything, follow Understand Anything.** Preserve the upstream commands, graph schema and analysis/update stages. Use project evidence to distinguish implementation structure from experimentally validated behavior.
 
 # /understand-domain
 

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "template_only": true,
+  "items": [
+    {
+      "id": "S01-example",
+      "stage": "阶段一（仅示例）",
+      "title": "代表性基线（仅示例）",
+      "kind": "demo",
+      "roles": [
+        "baseline",
+        "presentation"
+      ],
+      "path": "runs/EXAMPLE/preview.mp4",
+      "manifest": "runs/EXAMPLE/manifest.json",
+      "reason": "填写为何保留、能够说明什么。不要仅写最好/最新。",
+      "scope": "填写适用条件；检查范围见实际运行记录。"
+    }
+  ]
+}

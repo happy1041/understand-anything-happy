@@ -1,8 +1,13 @@
 ---
 name: understand-explain
 description: Use when you need a deep-dive explanation of a specific file, function, or module in the codebase
-argument-hint: "[file-path]"
+metadata:
+  argument-hint: "[file-path]"
 ---
+
+## Local engineering integration
+
+For engineering research, simulation, implementation, project explanation or evidence maintenance, also read [../understand/engineering/guide.md](../understand/engineering/guide.md). This is a supplement to the workflow below. **If the engineering supplement conflicts with Understand Anything, follow Understand Anything.** Preserve the upstream commands, graph schema and analysis/update stages. Use project evidence to distinguish implementation structure from experimentally validated behavior.
 
 # /understand-explain
 

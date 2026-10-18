@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "template_only": true,
+  "run_id": "<immutable-run-id>",
+  "experiment_id": null,
+  "created_at": "<ISO8601 with timezone>",
+  "purpose": "<what this run checks>",
+  "parent_run_id": null,
+  "code": {
+    "repository": "<repository identifier>",
+    "commit": null,
+    "dirty_patch": null,
+    "untracked_dependencies": []
+  },
+  "execution": {
+    "cwd": "<repository-relative or recorded execution directory>",
+    "argv": [],
+    "effective_config": null,
+    "environment_record": null,
+    "assets_record": null,
+    "seed": null
+  },
+  "outputs": [],
+  "checks": {
+    "execution": {
+      "status": "not_recorded",
+      "evidence": null
+    },
+    "numerical": {
+      "status": "not_checked",
+      "evidence": null
+    },
+    "visual": {
+      "status": "not_checked",
+      "evidence": null
+    },
+    "task": {
+      "status": "not_checked",
+      "evidence": null
+    }
+  },
+  "observation": null,
+  "known_gaps": []
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Understand Anything · Engineering"
+  short_description: "Explore code, decisions and engineering evidence"
+  default_prompt: "使用 $understand 帮我掌握项目全局，关联实现机制、实验依据和下一步修改入口。"
