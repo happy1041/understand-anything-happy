@@ -1,4 +1,4 @@
-本文件吸收原 engineering-project-memory。用户最新约定：**与 Understand Anything 上游流程冲突时，以上游为准**；系统与用户指令仍优先。这里补充工程理解和证据维护，不改变原生命令、图谱 schema、分析阶段、增量策略或语言选择流程。
+本文件补充工程理解与证据维护。用户最新约定：**与 Understand Anything 上游流程冲突时，以上游为准**；系统与用户指令仍优先。这里补充工程理解和证据维护，不改变原生命令、图谱 schema、分析阶段、增量策略或语言选择流程。
 
 ## 与图谱一起使用
 
@@ -9,7 +9,8 @@
 - 按上游 freshness/incremental 流程更新图谱；同时检查受影响解释与验收条件。只更新相关主题，不把每次分析变成全库文档重写。
 - 普通 Markdown 工程文档不自动视为 Karpathy wiki；调用 understand-knowledge 时遵循其格式检测与提示，不为工具擅自重排原文档。
 
-以下相对资源均相对于本文件所在的 `engineering/` 目录；按任务读取，不一次加载全部。`references/project-local.md` 仅用于对应的 ShirtDemo/RoboLab 本机工程。
+
+以下资源路径相对于本文件所在目录，按任务读取。
 
 # 工程理解与项目知识维护（Understand Anything 补充）
 
@@ -28,7 +29,6 @@
 按需阅读：
 - 文档树、理论/工程说明、状态与待办：`references/workspace.md`。
 - demo、代码、文档等产物的命名、分层与证据：`references/artifacts.md`。
-- 本机ShirtDemo/RoboLab路径映射与叠衣交接参考：`references/project-local.md`。
 - 数百个历史输出的安全整理：`references/legacy-cleanup.md`。
 - 模板位于 `assets/`；仅拷贝真正需要的模板，不复制所有占位文件进项目。
 - 无现成索引工具时，可用 `scripts/catalog.py` 生成只读盘点和精选入口；它不评估结果质量，也不运行仿真。
