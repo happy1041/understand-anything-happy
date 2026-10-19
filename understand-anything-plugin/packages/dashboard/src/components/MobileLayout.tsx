@@ -70,7 +70,7 @@ export default function MobileLayout({
   const isLearnMode = tourActive || persona === "junior";
   const infoContent = (
     <>
-      {selectedNodeId && <NodeInfo />}
+      {selectedNodeId && <NodeInfo accessToken={accessToken} />}
       {isLearnMode && (
         <Suspense fallback={null}>
           <LearnPanel />
@@ -104,6 +104,17 @@ export default function MobileLayout({
         <h1 className="font-heading text-base flex-1 min-w-0 truncate text-center text-text-primary tracking-wide">
           {graph?.project.name ?? t.common.appName}
         </h1>
+
+        {accessToken !== "__demo__" && (
+          <a
+            href={`/artifacts/?${new URLSearchParams({ token: accessToken })}`}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 px-2 py-1.5 rounded-lg text-xs font-medium bg-accent/15 text-accent hover:bg-accent/25"
+          >
+            Demo / 产物
+          </a>
+        )}
 
         <button
           type="button"

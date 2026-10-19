@@ -34,6 +34,7 @@ import {
 
 // Lazy-load heavy / optional components so they ship in separate chunks.
 const CodeViewer = lazy(() => import("./components/CodeViewer"));
+const StandaloneDocumentViewer = lazy(() => import("./components/CodeViewer").then((module) => ({ default: module.StandaloneDocumentViewer })));
 const LearnPanel = lazy(() => import("./components/LearnPanel"));
 const PathFinderModal = lazy(() => import("./components/PathFinderModal"));
 const KeyboardShortcutsHelp = lazy(
@@ -112,6 +113,16 @@ function App() {
     return <TokenGate onTokenValid={handleTokenValid} />;
   }
 
+  const documentPath = new URLSearchParams(window.location.search).get("document");
+  if (documentPath) {
+    return (
+      <ThemeProvider metaTheme={null}>
+        <Suspense fallback={<p className="p-6">正在加载报告…</p>}>
+          <StandaloneDocumentViewer documentPath={documentPath} accessToken={accessToken} />
+        </Suspense>
+      </ThemeProvider>
+    );
+  }
   return <Dashboard accessToken={accessToken} />;
 }
 
@@ -447,7 +458,7 @@ function DashboardContent({
   const isLearnMode = tourActive || persona === "junior";
   const infoSidebarContent = (
     <>
-      {selectedNodeId && <NodeInfo />}
+      {selectedNodeId && <NodeInfo accessToken={accessToken} />}
       {isLearnMode && (
         <Suspense fallback={null}>
           <LearnPanel />
@@ -506,6 +517,17 @@ function DashboardContent({
           </h1>
           <div className="w-px h-5 bg-border-subtle hidden sm:block" />
           <PersonaSelector />
+          {!DEMO_MODE && (
+            <a
+              href={`/artifacts/?${new URLSearchParams({ token: accessToken })}`}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-lg text-sm font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+              title="查看 Demo 视频、实验结果和资产"
+            >
+              Demo / 产物
+            </a>
+          )}
           {graph && !isKnowledgeGraph && domainGraph && (
             <>
               <div className="w-px h-5 bg-border-subtle" />

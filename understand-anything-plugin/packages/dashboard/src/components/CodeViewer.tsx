@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useDashboardStore } from "../store";
 import { useI18n } from "../contexts/I18nContext";
+import { projectResourceUrl } from "../utils/projectLinks";
 
 interface CodeViewerProps {
   accessToken: string;
@@ -59,7 +60,7 @@ function formatBytes(bytes: number): string {
 }
 
 /** Rendered markdown view for .md files, styled for the dark theme. */
-function MarkdownView({ content }: { content: string }) {
+function MarkdownView({ content, sourcePath, accessToken }: { content: string; sourcePath: string; accessToken: string }) {
   return (
     <div className="px-6 py-5 max-w-3xl text-sm text-text-secondary leading-relaxed">
       <ReactMarkdown
@@ -73,7 +74,7 @@ function MarkdownView({ content }: { content: string }) {
           h6: ({ children }) => <h6 className="text-xs font-heading text-text-primary mt-3 mb-1.5 first:mt-0 uppercase tracking-wider">{children}</h6>,
           p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
           a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+            <a href={projectResourceUrl(href, sourcePath, accessToken)} target={href?.startsWith("#") ? undefined : "_blank"} rel="noreferrer" className="text-accent hover:underline">
               {children}
             </a>
           ),
@@ -108,13 +109,46 @@ function MarkdownView({ content }: { content: string }) {
           ),
           td: ({ children }) => <td className="border border-border-subtle px-2.5 py-1.5">{children}</td>,
           img: ({ src, alt }) => (
-            <img src={src} alt={alt} className="max-w-full rounded-lg border border-border-subtle my-2" />
+            <img src={projectResourceUrl(src, sourcePath, accessToken)} alt={alt} className="max-w-full rounded-lg border border-border-subtle my-2" />
           ),
         }}
       >
         {content}
       </ReactMarkdown>
     </div>
+  );
+}
+
+/** Read-only report view, independent of graph membership or graph loading. */
+export function StandaloneDocumentViewer({ documentPath, accessToken }: { documentPath: string; accessToken: string }) {
+  const [state, setState] = useState<SourceState>({ status: "loading", source: null, error: null });
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: "loading", source: null, error: null });
+    const params = new URLSearchParams({ token: accessToken, path: documentPath });
+    fetch(`/artifact-content.json?${params}`, { signal: controller.signal })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+        setState({ status: "loaded", source: data as SourceFile, error: null });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setState({ status: "error", source: null, error: String(error) });
+      });
+    return () => controller.abort();
+  }, [documentPath, accessToken]);
+
+  return (
+    <main className="min-h-screen bg-root text-text-primary">
+      <header className="px-6 py-4 border-b border-border-subtle bg-surface flex flex-wrap items-center gap-4">
+        <a href={`/?${new URLSearchParams({ token: accessToken })}`} className="text-accent hover:underline">知识图谱</a>
+        <a href={`/artifacts/?${new URLSearchParams({ token: accessToken })}`} className="text-accent hover:underline">Demo / 产物</a>
+        <span className="text-xs font-mono text-text-muted break-all">{state.source?.path ?? documentPath}</span>
+      </header>
+      {state.status === "loading" && <p className="p-6 text-text-muted">正在加载报告…</p>}
+      {state.status === "error" && <p role="alert" className="p-6 text-red-400">{state.error}</p>}
+      {state.source && <MarkdownView content={state.source.content} sourcePath={state.source.path} accessToken={accessToken} />}
+    </main>
   );
 }
 
@@ -302,7 +336,7 @@ export default function CodeViewer({
                 <span>{formatBytes(source.sizeBytes)}</span>
               </div>
             </div>
-            {showRendered && <MarkdownView content={source.content} />}
+            {showRendered && <MarkdownView content={source.content} sourcePath={source.path} accessToken={accessToken} />}
             {!showRendered && (
             <Highlight code={source.content} language={language} theme={themes.vsDark}>
               {({ className, style, tokens, getLineProps, getTokenProps }) => (

@@ -3,7 +3,7 @@
 // gate, graph sanitisation, file-content allowlist, and .ua/legacy resolution.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -176,6 +176,38 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
   it("blocks static requests escaping dist/", async () => {
     const res = await fetch(`${base()}/%2e%2e/package.json`);
     expect([403, 404]).toContain(res.status);
+  });
+
+  it("serves project artifacts with authenticated navigation, ranges and containment", async () => {
+    mkdirSync(join(root, "outputs", "demo"), {recursive:true});
+    writeFileSync(join(root,"outputs/demo/data.json"), '{"ok":true}');
+    writeFileSync(join(root,"outputs/demo/hero.mp4"), "0123456789");
+    writeFileSync(join(root,"outputs/demo/INDEX.md"), "# Demo\n[video](hero.mp4)");
+    symlinkSync(join(root,"secret.txt"),join(root,"outputs/demo/escape.txt"));
+    symlinkSync(join(root,".ua/knowledge-graph.json"),join(root,"outputs/demo/hidden.json"));
+    expect((await fetch(`${base()}/outputs/demo/data.json`)).status).toBe(403);
+    const login = await fetch(`${base()}/?token=${viewer.token}`);
+    const cookie = login.headers.get("set-cookie").split(";")[0];
+    expect(cookie).toContain("ua_access=");
+    const result = await fetch(`${base()}/outputs/demo/data.json`,{headers:{cookie}});
+    expect(await result.json()).toEqual({ok:true});
+    expect((await fetch(`${base()}/outputs/demo/?token=${viewer.token}`)).status).toBe(200);
+    expect(await (await fetch(`${base()}/outputs/demo/?token=${viewer.token}`)).text()).toContain("hero.mp4?token=");
+    const video = await fetch(`${base()}/outputs/demo/hero.mp4?token=${viewer.token}`,{headers:{Range:"bytes=2-5"}});
+    expect(video.status).toBe(206); expect(video.headers.get("content-type")).toBe("video/mp4");
+    expect(video.headers.get("content-range")).toBe("bytes 2-5/10"); expect(await video.text()).toBe("2345");
+    expect((await fetch(`${base()}/outputs/demo/hero.mp4?token=${viewer.token}`,{headers:{Range:"bytes=20-"}})).status).toBe(416);
+    const head = await fetch(`${base()}/outputs/demo/hero.mp4?token=${viewer.token}`,{method:"HEAD"});
+    expect(head.headers.get("content-length")).toBe("10"); expect(await head.text()).toBe("");
+    const report = await fetch(`${base()}/outputs/demo/INDEX.md?token=${viewer.token}`,{redirect:"manual"});
+    expect(report.status).toBe(302); expect(report.headers.get("location")).toContain("document=outputs%2Fdemo%2FINDEX.md");
+    const content = await fetch(`${base()}/artifact-content.json?path=outputs/demo/INDEX.md&token=${viewer.token}`);
+    expect((await content.json()).content).toContain("# Demo");
+    for (const route of ["outputs/demo/escape.txt", "outputs/demo/hidden.json", "outputs/%2e%2e%2fsecret.txt", "secret.txt"])
+      expect((await fetch(`${base()}/${route}?token=${viewer.token}`)).status).toBe(404);
+    expect((await fetch(`${base()}/outputs/demo/data.json?token=wrong`,{headers:{cookie}})).status).toBe(403);
+    const portal = await fetch(`${base()}/artifacts/?token=${viewer.token}`);
+    expect(await portal.text()).toContain("Demo / 产物");
   });
 
   it("falls back to legacy .understand-anything/ projects", async () => {

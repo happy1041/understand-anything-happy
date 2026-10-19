@@ -17,6 +17,7 @@
  *   - /file-content.json only serves files listed in the graph, capped at
  *     1 MB, never binary
  */
+import { createReadStream } from "node:fs";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
@@ -304,6 +305,72 @@ function serveStatic(res, pathname) {
   res.end(fs.readFileSync(absolute));
 }
 
+// Read-only project artifacts share the graph's token and process.
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const artifactHref = (p) => "/" + p.split("/").map(encodeURIComponent).join("/") + "?token=" + encodeURIComponent(ACCESS_TOKEN);
+function projectPath(pathname) {
+  let decoded;
+  try { decoded = decodeURIComponent(pathname); } catch { return null; }
+  if (decoded.startsWith(projectRoot + "/")) decoded = decoded.slice(projectRoot.length);
+  const relative = decoded.replace(/^\/+/, "");
+  if (!relative || relative.includes("\0") || relative.includes("\\") || relative.split("/").some(p => p === ".." || p.startsWith("."))) return null;
+  const normalized = path.posix.normalize(relative).replace(/\/$/, "");
+  if (!/^(outputs|assets|gpt-docs)(\/|$)/.test(normalized) && !["README.md", "AGENTS.md"].includes(normalized) && !graphFilePathSet().has(normalized)) return null;
+  const absolute = path.resolve(projectRoot, normalized);
+  try {
+    const real = fs.realpathSync(absolute);
+    if (!real.startsWith(fs.realpathSync(projectRoot) + path.sep)) return null;
+    const target = path.relative(fs.realpathSync(projectRoot), real).split(path.sep).join("/");
+    if (!/^(outputs|assets|gpt-docs)(\/|$)/.test(target) && !["README.md", "AGENTS.md"].includes(target) && !graphFilePathSet().has(target)) return null;
+    // Don't expose hidden targets through symlinks.
+    if (path.relative(fs.realpathSync(projectRoot), real).split(path.sep).some(p => p.startsWith("."))) return null;
+    return { absolute, relative: normalized, stat: fs.statSync(real) };
+  } catch { return null; }
+}
+function htmlPage(res, title, body) {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; object-src 'none'; base-uri 'none'");
+  res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}</style><nav><a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · <a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
+}
+function serveArtifacts(res) {
+  const graph = JSON.parse(fs.readFileSync(path.join(graphDir, "knowledge-graph.json"), "utf8"));
+  const cards = (graph.nodes ?? []).filter(n => n.type === "resource" && n.filePath && n.artifactType).map(n => {
+    const href = artifactHref(normalizeGraphPath(n.filePath) ?? "");
+    const preview = n.artifactPreview ? artifactHref(n.artifactPreview) : "";
+    const media = n.artifactType === "video" ? `<video controls preload="metadata" src="${escapeHtml(href)}"${preview ? ` poster="${escapeHtml(preview)}"` : ""}></video>` : n.artifactType === "image" ? `<img loading="lazy" src="${escapeHtml(href)}" alt="${escapeHtml(n.name)}">` : preview ? `<img loading="lazy" src="${escapeHtml(preview)}" alt="${escapeHtml(n.name)}">` : "";
+    return `<article><h2><a href="${escapeHtml(href)}">${escapeHtml(n.name)}</a></h2>${media}<p>${escapeHtml(n.summary ?? "")}</p><small>${escapeHtml(n.filePath)}</small></article>`;
+  }).join("");
+  htmlPage(res, "Demo / 产物", `<p>入口来自当前图谱的资源节点；视频、资产和实验依据保留原文件。筛查通过不代表真实力已标定。</p><p>${["outputs", "assets", "gpt-docs"].map(p => `<a href="${artifactHref(p + "/")}">${p}</a>`).join(" · ")}</p><main>${cards}</main>`);
+}
+function serveProject(req, res, item, url) {
+  if (item.stat.isDirectory()) {
+    const entries = fs.readdirSync(item.absolute, {withFileTypes:true}).filter(e => !e.name.startsWith(".")).sort((a,b) => a.name.localeCompare(b.name));
+    htmlPage(res, item.relative + "/", `<ul>${entries.filter(e => projectPath("/" + item.relative + "/" + e.name)).map(e => `<li><a href="${escapeHtml(artifactHref(item.relative + "/" + e.name + (e.isDirectory() ? "/" : "")))}">${escapeHtml(e.name)}${e.isDirectory() ? "/" : ""}</a></li>`).join("")}</ul>`);
+    return;
+  }
+  if (path.extname(item.relative).toLowerCase() === ".md") {
+    res.writeHead(302, {Location: "/?document=" + encodeURIComponent(item.relative) + "&token=" + encodeURIComponent(ACCESS_TOKEN)}); res.end(); return;
+  }
+  const types = {...CONTENT_TYPES, ".mp4":"video/mp4", ".webm":"video/webm", ".jpg":"image/jpeg", ".jpeg":"image/jpeg", ".gif":"image/gif", ".csv":"text/csv; charset=utf-8", ".jsonl":"text/plain; charset=utf-8", ".log":"text/plain; charset=utf-8"};
+  res.setHeader("Content-Type", types[path.extname(item.relative).toLowerCase()] ?? "application/octet-stream");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Accept-Ranges", "bytes");
+  let start = 0, end = item.stat.size - 1;
+  if (req.headers.range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range);
+    if (match && (match[1] || match[2])) {
+      start = match[1] ? Number(match[1]) : Math.max(0,item.stat.size - Number(match[2]));
+      end = match[1] && match[2] ? Math.min(Number(match[2]),end) : end;
+    } else start = -1;
+    if (start < 0 || start >= item.stat.size || start > end) { res.writeHead(416, {"Content-Range": `bytes */${item.stat.size}`}); res.end(); return; }
+    res.statusCode = 206;
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${item.stat.size}`);
+  }
+  res.setHeader("Content-Length", Math.max(0,end-start+1));
+  if (req.method === "HEAD" || !item.stat.size) { res.end(); return; }
+  createReadStream(item.absolute, {start,end}).on("error", () => res.destroy()).pipe(res);
+}
+
 // ── Server ────────────────────────────────────────────────────────────────
 
 const PROTECTED = new Set([
@@ -317,6 +384,7 @@ const PROTECTED = new Set([
 ]);
 
 const server = createServer((req, res) => {
+  res.setHeader("Referrer-Policy", "no-referrer");
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const pathname = url.pathname;
 
@@ -324,15 +392,32 @@ const server = createServer((req, res) => {
     res.setHeader("Cache-Control", "no-store");
   }
 
-  if (!PROTECTED.has(pathname)) {
+  const queryToken = url.searchParams.get("token");
+  const cookieToken = (req.headers.cookie ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("ua_access="))?.slice(10);
+  const authenticated = queryToken !== null ? queryToken === ACCESS_TOKEN : cookieToken === ACCESS_TOKEN;
+  if (queryToken === ACCESS_TOKEN) res.setHeader("Set-Cookie", `ua_access=${ACCESS_TOKEN}; HttpOnly; SameSite=Strict; Path=/`);
+  const item = projectPath(pathname);
+  const artifactRequest = pathname === "/artifacts/" || pathname === "/artifacts" || pathname === "/artifact-content.json" || item;
+  if (!PROTECTED.has(pathname) && !artifactRequest) {
     serveStatic(res, pathname);
     return;
   }
-
-  if (url.searchParams.get("token") !== ACCESS_TOKEN) {
+  if (!authenticated) {
     sendJson(res, 403, { error: "Forbidden: missing or invalid token" });
     return;
   }
+  if (!["GET", "HEAD"].includes(req.method)) { res.writeHead(405); res.end(); return; }
+  res.setHeader("Cache-Control", "no-store");
+  if (pathname === "/artifacts/" || pathname === "/artifacts") { serveArtifacts(res); return; }
+  if (pathname === "/artifact-content.json") {
+    const source = projectPath("/" + (url.searchParams.get("path") ?? ""));
+    if (!source || !source.stat.isFile()) { sendJson(res,404,{error:"File not found"}); return; }
+    if (source.stat.size > MAX_SOURCE_FILE_BYTES) { sendJson(res,413,{error:"File is too large to preview"}); return; }
+    const buffer = fs.readFileSync(source.absolute);
+    if (buffer.includes(0)) { sendJson(res,415,{error:"Binary files cannot be previewed"}); return; }
+    sendJson(res,200,{path:source.relative,content:buffer.toString("utf8"),language:detectLanguage(source.relative),sizeBytes:buffer.length,lineCount:buffer.toString("utf8").split("\n").length}); return;
+  }
+  if (item) { serveProject(req,res,item,url); return; }
 
   if (pathname === "/file-content.json") {
     const result = readSourceFile(url);
