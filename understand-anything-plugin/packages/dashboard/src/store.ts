@@ -301,6 +301,10 @@ function layerResetIfChanged(
 ): Partial<DashboardStore> {
   const next = layerNav.activeLayerId;
   if (!next || next === prevLayerId) return {};
+  return resetContainerState();
+}
+
+function resetContainerState(): Partial<DashboardStore> {
   return {
     containerLayoutCache: new Map(),
     containerSizeMemory: new Map(),
@@ -309,6 +313,26 @@ function layerResetIfChanged(
     // layer and would otherwise re-collide with a same-id container in
     // the new layer for the duration of the 1.2s timer.
     pendingFocusContainer: null,
+  };
+}
+
+/** A sidebar/search target must be visible in the view we navigate into. */
+function nodeNavigationState(
+  state: DashboardStore,
+  nodeId: string,
+): Partial<DashboardStore> {
+  const layerId = state.nodeIdToLayerId.get(nodeId);
+  const type = state.nodesById.get(nodeId)?.type;
+  const detailNav: Partial<DashboardStore> = type === "function"
+    ? { detailLevel: "class", showFunctionsInClassView: true }
+    : type === "class" ? { detailLevel: "class" } : {};
+  const detailChanged = (detailNav.detailLevel !== undefined && detailNav.detailLevel !== state.detailLevel)
+    || (detailNav.showFunctionsInClassView !== undefined && detailNav.showFunctionsInClassView !== state.showFunctionsInClassView);
+  return {
+    ...(layerId ? { navigationLevel: "layer-detail" as const, activeLayerId: layerId } : {}),
+    ...detailNav,
+    ...((layerId !== undefined && layerId !== state.activeLayerId) || detailChanged
+      ? resetContainerState() : {}),
   };
 }
 
@@ -437,76 +461,48 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
   },
 
   navigateToNodeInLayer: (nodeId) => {
-    const { graph, selectedNodeId, nodeHistory, nodeIdToLayerId, activeLayerId } = get();
+    const state = get();
+    const { graph, selectedNodeId, nodeHistory } = state;
     if (!graph) return;
-    const layerId = nodeIdToLayerId.get(nodeId) ?? null;
     const newHistory =
       selectedNodeId && nodeId !== selectedNodeId
         ? [...nodeHistory, selectedNodeId].slice(-MAX_HISTORY)
         : nodeHistory;
-    if (layerId) {
-      const layerNav = {
-        navigationLevel: "layer-detail" as const,
-        activeLayerId: layerId,
-      };
-      set({
-        ...layerNav,
-        selectedNodeId: nodeId,
-        focusNodeId: null,
-        codeViewerOpen: false,
-        codeViewerNodeId: null,
-        codeViewerExpanded: false,
-        nodeHistory: newHistory,
-        ...layerResetIfChanged(layerNav, activeLayerId),
-      });
-    } else {
-      set({
-        selectedNodeId: nodeId,
-        nodeHistory: newHistory,
-      });
-    }
+    set({
+      ...nodeNavigationState(state, nodeId),
+      selectedNodeId: nodeId,
+      focusNodeId: null,
+      codeViewerOpen: false,
+      codeViewerNodeId: null,
+      codeViewerExpanded: false,
+      nodeHistory: newHistory,
+    });
   },
 
   navigateToHistoryIndex: (index) => {
-    const { nodeHistory, graph, nodeIdToLayerId, activeLayerId } = get();
+    const state = get();
+    const { nodeHistory, graph } = state;
     if (!graph || index < 0 || index >= nodeHistory.length) return;
     const targetId = nodeHistory[index];
     const newHistory = nodeHistory.slice(0, index);
-    const layerId = nodeIdToLayerId.get(targetId) ?? null;
-    const layerNav = layerId
-      ? { navigationLevel: "layer-detail" as const, activeLayerId: layerId }
-      : {};
     set({
+      ...nodeNavigationState(state, targetId),
       selectedNodeId: targetId,
       nodeHistory: newHistory,
-      ...layerNav,
-      ...layerResetIfChanged(layerNav, activeLayerId),
     });
   },
 
   goBackNode: () => {
-    const { nodeHistory, graph, nodeIdToLayerId, activeLayerId } = get();
+    const state = get();
+    const { nodeHistory, graph } = state;
     if (nodeHistory.length === 0 || !graph) return;
     const prevNodeId = nodeHistory[nodeHistory.length - 1];
     const newHistory = nodeHistory.slice(0, -1);
-    const layerId = nodeIdToLayerId.get(prevNodeId) ?? null;
-    if (layerId) {
-      const layerNav = {
-        navigationLevel: "layer-detail" as const,
-        activeLayerId: layerId,
-      };
-      set({
-        ...layerNav,
-        selectedNodeId: prevNodeId,
-        nodeHistory: newHistory,
-        ...layerResetIfChanged(layerNav, activeLayerId),
-      });
-    } else {
-      set({
-        selectedNodeId: prevNodeId,
-        nodeHistory: newHistory,
-      });
-    }
+    set({
+      ...nodeNavigationState(state, prevNodeId),
+      selectedNodeId: prevNodeId,
+      nodeHistory: newHistory,
+    });
   },
 
   drillIntoLayer: (layerId) =>
@@ -670,6 +666,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
     set({
       currentTourStep: step,
       tourHighlightedNodeIds: sorted[step].nodeIds,
+      selectedNodeId: null,
       ...layerNav,
       ...layerResetIfChanged(layerNav, activeLayerId),
     });
@@ -685,6 +682,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
       set({
         currentTourStep: next,
         tourHighlightedNodeIds: sorted[next].nodeIds,
+        selectedNodeId: null,
         ...layerNav,
         ...layerResetIfChanged(layerNav, activeLayerId),
       });
@@ -701,6 +699,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
       set({
         currentTourStep: prev,
         tourHighlightedNodeIds: sorted[prev].nodeIds,
+        selectedNodeId: null,
         ...layerNav,
         ...layerResetIfChanged(layerNav, activeLayerId),
       });

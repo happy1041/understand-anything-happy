@@ -12,7 +12,7 @@ export default function LearnPanel() {
   const setTourStep = useDashboardStore((s) => s.setTourStep);
   const nextTourStep = useDashboardStore((s) => s.nextTourStep);
   const prevTourStep = useDashboardStore((s) => s.prevTourStep);
-  const selectNode = useDashboardStore((s) => s.selectNode);
+  const navigateToNodeInLayer = useDashboardStore((s) => s.navigateToNodeInLayer);
   const { t } = useI18n();
 
   const tourSteps = useMemo(
@@ -178,7 +178,7 @@ export default function LearnPanel() {
                 return (
                   <button
                     key={nodeId}
-                    onClick={() => selectNode(nodeId)}
+                    onClick={() => navigateToNodeInLayer(nodeId)}
                     className="text-[11px] glass text-text-secondary px-2.5 py-1 rounded-full hover:text-text-primary transition-colors cursor-pointer"
                   >
                     {node?.name ?? nodeId}

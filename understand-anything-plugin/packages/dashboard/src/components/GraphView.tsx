@@ -109,7 +109,7 @@ export const STRUCTURAL_VISIBLE_TYPES = new Set<string>([
 // ── Helper components that must live inside <ReactFlow> ────────────────
 
 /** Fit only view-resolved targets, with one wall-clock deadline per tour step. */
-function TourFitView({ targetNodeIds, requestKey }: { targetNodeIds: string[]; requestKey: string }) {
+export function NodeTargetFitView({ targetNodeIds, requestKey, isTourRequest, layoutPending = false }: { targetNodeIds: string[]; requestKey: string; isTourRequest: boolean; layoutPending?: boolean }) {
   const setTourFitPending = useDashboardStore((s) => s.setTourFitPending);
   const { fitView, getInternalNode } = useReactFlow();
   const nodes = useNodes();
@@ -128,13 +128,18 @@ function TourFitView({ targetNodeIds, requestKey }: { targetNodeIds: string[]; r
     if (deadlineRef.current.key !== requestKey) {
       deadlineRef.current = { key: requestKey, at: performance.now() + 1500 };
     }
+    if (layoutPending) {
+      fittedKeyRef.current = "";
+      setTourFitPending(false);
+      return;
+    }
     // A view can legitimately have no representatives after filtering.
     if (!targetNodeIds.length) { setTourFitPending(false); return; }
     const fitKey = requestKey + "\0" + targetNodeIds.join("\n");
     if (fittedKeyRef.current === fitKey) return;
     let cancelled = false;
     let rafId = 0;
-    if (fallbackKeyRef.current !== requestKey) setTourFitPending(true);
+    setTourFitPending(isTourRequest && fallbackKeyRef.current !== requestKey);
     const fallback = () => {
       if (cancelled) return;
       cancelAnimationFrame(rafId);
@@ -145,7 +150,10 @@ function TourFitView({ targetNodeIds, requestKey }: { targetNodeIds: string[]; r
       setTourFitPending(false);
     };
     // Unlike a frame counter, this cannot be reset by every node update.
-    const timer = window.setTimeout(fallback, Math.max(0, deadlineRef.current.at - performance.now()));
+    const remaining = deadlineRef.current.at - performance.now();
+    // Once fallback has run, give a late measured target a frame before
+    // retrying fallback; a zero-delay timer would cancel that frame forever.
+    const timer = remaining > 0 ? window.setTimeout(fallback, remaining) : undefined;
     const tick = () => {
       if (cancelled) return;
       const ready = targetNodeIds.every((id) => {
@@ -166,35 +174,7 @@ function TourFitView({ targetNodeIds, requestKey }: { targetNodeIds: string[]; r
       cancelAnimationFrame(rafId);
       window.clearTimeout(timer);
     };
-  }, [targetNodeIds, requestKey, nodes, fitView, getInternalNode, setTourFitPending]);
-  return null;
-}
-
-/** Centers the graph on the selected node (e.g. from search). */
-function SelectedNodeFitView() {
-  const selectedNodeId = useDashboardStore((s) => s.selectedNodeId);
-  const { fitView } = useReactFlow();
-  const prevRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (selectedNodeId && selectedNodeId !== prevRef.current) {
-      // Delay slightly so this runs after any layer-level fitView triggered
-      // by navigateToNodeInLayer (which also changes activeLayerId).
-      const timer = setTimeout(() => {
-        fitView({
-          nodes: [{ id: selectedNodeId }],
-          duration: 500,
-          padding: 0.3,
-          maxZoom: 1.2,
-          minZoom: 0.01,
-        });
-      }, 100);
-      prevRef.current = selectedNodeId;
-      return () => clearTimeout(timer);
-    }
-    prevRef.current = selectedNodeId;
-  }, [selectedNodeId, fitView]);
-
+  }, [targetNodeIds, requestKey, isTourRequest, layoutPending, nodes, fitView, getInternalNode, setTourFitPending]);
   return null;
 }
 
@@ -354,7 +334,7 @@ const EMPTY_TOPOLOGY: LayerDetailTopology = {
  * selectedNodeId, searchResults, tourHighlightedNodeIds, or
  * expandedContainers (Stage 2 concern).
  */
-function useLayerDetailTopology(): LayerDetailTopology & {
+export function useLayerDetailTopology(): LayerDetailTopology & {
   layoutStatus: "computing" | "ready";
 } {
   const graph = useDashboardStore((s) => s.graph);
@@ -403,14 +383,25 @@ function useLayerDetailTopology(): LayerDetailTopology & {
     // Class view: file nodes + class nodes, functions only when toggle is on.
     const expandedLayerNodeIds = new Set(layerNodeIds);
     if (detailLevel !== "file") {
+      const children = new Map<string, string[]>();
       for (const edge of graph.edges) {
-        if (edge.type === "contains" && layerNodeIds.has(edge.source)) {
-          const child = nodesById.get(edge.target);
+        if (edge.type !== "contains") continue;
+        const list = children.get(edge.source) ?? [];
+        list.push(edge.target);
+        children.set(edge.source, list);
+      }
+      const queue = [...layerNodeIds];
+      const visited = new Set<string>();
+      for (let i = 0; i < queue.length; i++) {
+        const id = queue[i];
+        if (visited.has(id)) continue;
+        visited.add(id);
+        for (const childId of children.get(id) ?? []) {
+          const child = nodesById.get(childId);
           if (!child) continue;
-          if (child.type === "class") {
-            expandedLayerNodeIds.add(edge.target);
-          } else if (child.type === "function" && showFunctionsInClassView) {
-            expandedLayerNodeIds.add(edge.target);
+          if (child.type === "class" || (child.type === "function" && showFunctionsInClassView)) {
+            expandedLayerNodeIds.add(childId);
+            queue.push(childId);
           }
         }
       }
@@ -646,12 +637,20 @@ function useLayerDetailTopology(): LayerDetailTopology & {
   // to re-run with the now-cached actual size in containerSizeMemory so
   // surrounding atoms reflow into the correct positions.
   const stage1Tick = useDashboardStore((s) => s.stage1Tick);
-  const [topology, setTopology] = useState<LayerDetailTopology>(EMPTY_TOPOLOGY);
+  // Never expose a previous layer/filter generation to child-layout effects.
+  // Clearing it in useEffect is too late: sibling effects can already start
+  // jobs using the old containers and the newly-cleared shared cache.
+  const sourceRef = useRef(built);
+  sourceRef.current = built;
+  const [positionedTopology, setPositionedTopology] = useState<{
+    source: typeof built; topology: LayerDetailTopology;
+  }>({ source: null, topology: EMPTY_TOPOLOGY });
+  const topology = positionedTopology.source === built ? positionedTopology.topology : EMPTY_TOPOLOGY;
   const [layoutStatus, setLayoutStatus] = useState<"computing" | "ready">("ready");
 
   useEffect(() => {
     if (!built) {
-      setTopology(EMPTY_TOPOLOGY);
+      setPositionedTopology({ source: null, topology: EMPTY_TOPOLOGY });
       setLayoutStatus("ready");
       return;
     }
@@ -723,7 +722,7 @@ function useLayerDetailTopology(): LayerDetailTopology & {
     setLayoutStatus("computing");
     applyElkLayout(elkInput, { strict: import.meta.env.DEV })
       .then(({ positioned, issues }) => {
-        if (cancelled) return;
+        if (cancelled || sourceRef.current !== built) return;
         if (issues.length > 0) {
           // Funnel into store so WarningBanner surfaces them.
           useDashboardStore.getState().appendLayoutIssues(issues);
@@ -734,7 +733,7 @@ function useLayerDetailTopology(): LayerDetailTopology & {
           ...(portalNodes as unknown as Node[]),
         ];
         const positionedNodes = mergeElkPositions(allBaseNodes, positioned);
-        setTopology({
+        setPositionedTopology({ source: built, topology: {
           nodes: positionedNodes,
           edges: aggEdges,
           portalNodes,
@@ -744,12 +743,14 @@ function useLayerDetailTopology(): LayerDetailTopology & {
           containers,
           nodeToContainer,
           intraContainer,
-        });
+        } });
         setLayoutStatus("ready");
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled || sourceRef.current !== built) return;
         console.error("[layer-detail Stage 1 ELK] layout failed:", err);
+        setPositionedTopology({ source: built, topology: EMPTY_TOPOLOGY });
+        useDashboardStore.getState().appendLayoutIssues([{ level: "fatal", category: "layer-layout-failed", message: `Layer layout failed: ${String(err)}` }]);
         setLayoutStatus("ready");
       });
 
@@ -761,8 +762,8 @@ function useLayerDetailTopology(): LayerDetailTopology & {
   // ── Stage 2: lazy per-container layout on expand ───────────────────────
   // Watches expandedContainers and computes ELK on each newly-expanded
   // container's children (without a cache entry). Critically does NOT
-  // depend on `built` — expanding a container must not trigger Stage 1
-  // relayout of the surrounding atoms.
+  // rebuild `built` — expanding a container must not trigger Stage 1
+  // relayout. Source identity still guards results across navigation.
   const expandedContainers = useDashboardStore((s) => s.expandedContainers);
   const containerLayoutCache = useDashboardStore((s) => s.containerLayoutCache);
   const setContainerLayout = useDashboardStore((s) => s.setContainerLayout);
@@ -772,9 +773,13 @@ function useLayerDetailTopology(): LayerDetailTopology & {
   const stage2Intra = topology.intraContainer;
 
   useEffect(() => {
-    if (stage2Containers.length === 0) return;
+    if (sourceRef.current !== built || stage2Containers.length === 0) return;
     const toCompute = [...expandedContainers].filter(
-      (id) => !containerLayoutCache.has(id),
+      (id) => {
+        const container = stage2Containers.find(c => c.id === id);
+        const cache = containerLayoutCache.get(id);
+        return container && (!cache || container.nodeIds.some(child => !cache.childPositions.has(child)));
+      },
     );
     if (toCompute.length === 0) return;
 
@@ -857,7 +862,7 @@ function useLayerDetailTopology(): LayerDetailTopology & {
         }
       }),
     ).then((results) => {
-      if (cancelled) return;
+      if (cancelled || sourceRef.current !== built) return;
       let anyDeviated = false;
       for (const r of results) {
         if (!r) continue;
@@ -876,6 +881,7 @@ function useLayerDetailTopology(): LayerDetailTopology & {
       cancelled = true;
     };
   }, [
+    built,
     expandedContainers,
     stage2Containers,
     stage2Intra,
@@ -884,7 +890,7 @@ function useLayerDetailTopology(): LayerDetailTopology & {
     bumpStage1Tick,
   ]);
 
-  return { ...topology, layoutStatus };
+  return { ...topology, layoutStatus: built && positionedTopology.source !== built ? "computing" : layoutStatus };
 }
 
 /**
@@ -943,7 +949,7 @@ function buildCustomFlowNode(
  *   - Aggregated edges incident to an expanded container are replaced with
  *     the underlying file→file edges from `topo.filteredEdges`.
  */
-function useLayerDetailGraph() {
+export function useLayerDetailGraph() {
   const graph = useDashboardStore((s) => s.graph);
   const selectedNodeId = useDashboardStore((s) => s.selectedNodeId);
   const searchResults = useDashboardStore((s) => s.searchResults);
@@ -1287,6 +1293,7 @@ function useLayerDetailGraph() {
 
 function GraphViewInner() {
   const graph = useDashboardStore((s) => s.graph);
+  const selectedNodeId = useDashboardStore((s) => s.selectedNodeId);
   const nodeIdToLayerId = useDashboardStore((s) => s.nodeIdToLayerId);
   const navigationLevel = useDashboardStore((s) => s.navigationLevel);
   const activeLayerId = useDashboardStore((s) => s.activeLayerId);
@@ -1316,11 +1323,17 @@ function GraphViewInner() {
     ? { ...overviewGraph, nodeToContainer: undefined, containerIds: undefined }
     : detailGraph;
 
-  const tourFitTargetNodeIds = useMemo(() => {
+  const availableTargetIds = useMemo(() => {
     const candidates = new Set(nodeToContainer?.keys());
     for (const node of initialNodes) candidates.add(node.id);
-    return resolveTourTargets(tourHighlightedNodeIds, graph?.edges ?? [], candidates, nodeIdToLayerId);
-  }, [tourHighlightedNodeIds, graph, nodeToContainer, initialNodes, nodeIdToLayerId]);
+    return candidates;
+  }, [nodeToContainer, initialNodes]);
+  const tourFitTargetNodeIds = useMemo(() => {
+    return resolveTourTargets(tourHighlightedNodeIds, graph?.edges ?? [], availableTargetIds, nodeIdToLayerId);
+  }, [tourHighlightedNodeIds, graph, availableTargetIds, nodeIdToLayerId]);
+  const selectedFitTargetNodeIds = useMemo(() => resolveTourTargets(
+    selectedNodeId ? [selectedNodeId] : [], graph?.edges ?? [], availableTargetIds, nodeIdToLayerId,
+  ), [selectedNodeId, graph, availableTargetIds, nodeIdToLayerId]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -1345,7 +1358,7 @@ function GraphViewInner() {
   }, [navigationLevel, activeLayerId]);
 
   useEffect(() => {
-    if (!pendingFitRef.current) return;
+    if (!pendingFitRef.current || selectedNodeId || tourHighlightedNodeIds.length) return;
     if (nodes.length === 0) return;
     pendingFitRef.current = false;
     // One frame so React Flow has positioned the nodes before fit.
@@ -1353,7 +1366,7 @@ function GraphViewInner() {
       fitView({ duration: 400, padding: 0.2 });
     });
     return () => cancelAnimationFrame(raf);
-  }, [nodes, fitView]);
+  }, [nodes, fitView, selectedNodeId, tourHighlightedNodeIds]);
 
   // Lock viewport onto a container the user just manually expanded so it
   // appears to expand in place rather than getting yanked off-screen by
@@ -1386,6 +1399,15 @@ function GraphViewInner() {
   // Only meaningful in layer-detail; in overview mode there are no
   // containers so all three effects no-op.
 
+  // A selected class/method may be inside a collapsed file container.
+  useEffect(() => {
+    if (!nodeToContainer) return;
+    for (const id of selectedFitTargetNodeIds) {
+      const cid = nodeToContainer.get(id);
+      if (cid && cid !== id) expandContainer(cid);
+    }
+  }, [selectedFitTargetNodeIds, nodeToContainer, expandContainer]);
+
   // Focus: when focusNodeId resolves to a node inside a container, expand it.
   // Reading expandContainer is stable (Zustand setter); intentionally omitting
   // expandedContainers from deps so focus changes are the only trigger.
@@ -1401,7 +1423,7 @@ function GraphViewInner() {
   // Containers the user expanded manually aren't tracked here, so they're
   // never auto-collapsed. stopTour resets tourHighlightedNodeIds to [],
   // which falls through to the "release all" branch.
-  const tourBorrowedContainersRef = useRef<Set<string>>(new Set());
+  const tourBorrowedContainersRef = useRef<{layerId: string | null; ids: Set<string>}>({ layerId: null, ids: new Set() });
   useEffect(() => {
     if (!nodeToContainer) return;
 
@@ -1412,7 +1434,8 @@ function GraphViewInner() {
     }
 
     const stillBorrowed = new Set<string>();
-    for (const cid of tourBorrowedContainersRef.current) {
+    const previous = tourBorrowedContainersRef.current.layerId === activeLayerId ? tourBorrowedContainersRef.current.ids : new Set<string>();
+    for (const cid of previous) {
       if (needed.has(cid)) {
         stillBorrowed.add(cid);
       } else {
@@ -1428,8 +1451,8 @@ function GraphViewInner() {
       }
     }
 
-    tourBorrowedContainersRef.current = stillBorrowed;
-  }, [tourFitTargetNodeIds, nodeToContainer, expandContainer, collapseContainer]);
+    tourBorrowedContainersRef.current = { layerId: activeLayerId, ids: stillBorrowed };
+  }, [tourFitTargetNodeIds, activeLayerId, nodeToContainer, expandContainer, collapseContainer]);
 
   // Zoom: debounced auto-expand when the user has zoomed in past 1.0.
   // Hysteresis: zoom < 0.6 = no auto-expand AND no auto-collapse (v1, the
@@ -1543,8 +1566,12 @@ function GraphViewInner() {
           maskColor="var(--glass-bg)"
           className="!bg-surface !border !border-border-subtle"
         />
-        <TourFitView targetNodeIds={tourFitTargetNodeIds} requestKey={tourHighlightedNodeIds.join("\n")} />
-        <SelectedNodeFitView />
+        <NodeTargetFitView
+          targetNodeIds={selectedNodeId ? selectedFitTargetNodeIds : tourFitTargetNodeIds}
+          requestKey={selectedNodeId || tourHighlightedNodeIds.length ? `${navigationLevel}:${activeLayerId}:` + (selectedNodeId ?? tourHighlightedNodeIds.join("\n")) : ""}
+          isTourRequest={!selectedNodeId && tourHighlightedNodeIds.length > 0}
+          layoutPending={layoutStatus === "computing"}
+        />
       </ReactFlow>
       {(layoutStatus === "computing" || tourFitPending) && (
         <div

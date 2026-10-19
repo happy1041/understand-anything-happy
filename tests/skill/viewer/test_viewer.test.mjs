@@ -114,6 +114,7 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
   it("serves the embedded dashboard index", async () => {
     const res = await fetch(`${base()}/`);
     expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.text()).toContain("<!doctype html>");
   });
 

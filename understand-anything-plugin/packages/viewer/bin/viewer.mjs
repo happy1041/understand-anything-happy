@@ -301,6 +301,7 @@ function serveStatic(res, pathname) {
     res.end("Not found");
     return;
   }
+  if (path.extname(absolute).toLowerCase() === ".html") res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", CONTENT_TYPES[path.extname(absolute).toLowerCase()] ?? "application/octet-stream");
   res.end(fs.readFileSync(absolute));
 }
