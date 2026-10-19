@@ -458,7 +458,7 @@ function DashboardContent({
   const isLearnMode = tourActive || persona === "junior";
   const infoSidebarContent = (
     <>
-      {selectedNodeId && <NodeInfo accessToken={accessToken} />}
+      {selectedNodeId && <NodeInfo />}
       {isLearnMode && (
         <Suspense fallback={null}>
           <LearnPanel />

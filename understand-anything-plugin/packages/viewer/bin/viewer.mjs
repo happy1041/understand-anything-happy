@@ -333,14 +333,26 @@ function htmlPage(res, title, body) {
   res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}</style><nav><a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · <a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
 }
 function serveArtifacts(res) {
-  const graph = JSON.parse(fs.readFileSync(path.join(graphDir, "knowledge-graph.json"), "utf8"));
-  const cards = (graph.nodes ?? []).filter(n => n.type === "resource" && n.filePath && n.artifactType).map(n => {
+  // Artifacts are an independent catalog, not architecture graph nodes.
+  const catalogPath = path.join(graphDir, "artifacts.json");
+  let items = [];
+  if (fs.existsSync(catalogPath)) {
+    try {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
+      if (!Array.isArray(catalog.items)) throw new Error("Missing items");
+      items = catalog.items;
+    } catch {
+      sendJson(res, 500, { error: "Failed to read artifact catalog" });
+      return;
+    }
+  }
+  const cards = items.filter(n => typeof n.filePath === "string" && typeof n.name === "string" && n.artifactType).map(n => {
     const href = artifactHref(normalizeGraphPath(n.filePath) ?? "");
     const preview = n.artifactPreview ? artifactHref(n.artifactPreview) : "";
     const media = n.artifactType === "video" ? `<video controls preload="metadata" src="${escapeHtml(href)}"${preview ? ` poster="${escapeHtml(preview)}"` : ""}></video>` : n.artifactType === "image" ? `<img loading="lazy" src="${escapeHtml(href)}" alt="${escapeHtml(n.name)}">` : preview ? `<img loading="lazy" src="${escapeHtml(preview)}" alt="${escapeHtml(n.name)}">` : "";
     return `<article><h2><a href="${escapeHtml(href)}">${escapeHtml(n.name)}</a></h2>${media}<p>${escapeHtml(n.summary ?? "")}</p><small>${escapeHtml(n.filePath)}</small></article>`;
   }).join("");
-  htmlPage(res, "Demo / 产物", `<p>入口来自当前图谱的资源节点；视频、资产和实验依据保留原文件。筛查通过不代表真实力已标定。</p><p>${["outputs", "assets", "gpt-docs"].map(p => `<a href="${artifactHref(p + "/")}">${p}</a>`).join(" · ")}</p><main>${cards}</main>`);
+  htmlPage(res, "Demo / 产物", `<p>原速视频、资产与实验记录。各项说明标明验证范围，完整配置和日志见批次索引。</p><p>${["outputs", "assets", "gpt-docs"].map(p => `<a href="${artifactHref(p + "/")}">${p}</a>`).join(" · ")}</p><main>${cards}</main>`);
 }
 function serveProject(req, res, item, url) {
   if (item.stat.isDirectory()) {

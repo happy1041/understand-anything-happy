@@ -36,6 +36,8 @@ describe("deriveContainers — folder strategy", () => {
     const nodes = [
       node("a", "monorepo/backend/src/auth/login.go"),
       node("b", "monorepo/backend/src/cart/cart.go"),
+      node("c", "monorepo/backend/src/auth/oauth.go"),
+      node("d", "monorepo/backend/src/cart/checkout.go"),
     ];
     const { containers } = deriveContainers(nodes, []);
     const names = containers.map((c) => c.name).sort();
@@ -77,7 +79,7 @@ describe("deriveContainers — folder strategy", () => {
     expect(containers.find((c) => c.name === "auth")?.nodeIds.sort()).toEqual(["a", "b"]);
   });
 
-  it("returns flat (no containers) when total nodes < 8", () => {
+  it("returns flat when every folder has a single node", () => {
     const nodes = [
       node("a", "auth/x.go"),
       node("b", "cart/y.go"),
@@ -90,6 +92,42 @@ describe("deriveContainers — folder strategy", () => {
 });
 
 describe("deriveContainers — community fallback", () => {
+  it("shows a single-file layer directly instead of an empty collapsed cluster", () => {
+    const { containers, ungrouped } = deriveContainers([
+      node("plan", "gpt-docs/PLAN.md"),
+    ], []);
+    expect(containers).toEqual([]);
+    expect(ungrouped).toEqual(["plan"]);
+  });
+
+  it("shows both disconnected nodes directly in a two-node layer", () => {
+    const { containers, ungrouped } = deriveContainers([
+      node("a", "src/a.ts"), node("b", "src/b.ts"),
+    ], []);
+    expect(containers).toEqual([]);
+    expect(ungrouped.sort()).toEqual(["a", "b"]);
+  });
+
+  it.each([2, 6])("flattens one community covering the whole %i-node layer", (count) => {
+    const nodes = Array.from({ length: count }, (_, i) => node(`n${i}`, `src/n${i}.ts`));
+    const edges = nodes.flatMap((source, i) => nodes.slice(i + 1).map((target) => ({
+      source: source.id, target: target.id, type: "calls",
+    } as GraphEdge)));
+    const { containers, ungrouped } = deriveContainers(nodes, edges);
+    expect(containers).toEqual([]);
+    expect(ungrouped).toEqual(nodes.map((n) => n.id));
+  });
+
+  it("keeps a community beside an ungrouped file because it still partitions the layer", () => {
+    const nodes = [node("a", "src/a.ts"), node("b", "src/b.ts"), node("c", "src/c.ts")];
+    const edges = [{ source: "a", target: "b", type: "calls" } as GraphEdge];
+    const { containers, ungrouped } = deriveContainers(nodes, edges);
+    expect(containers).toHaveLength(1);
+    expect(containers[0].strategy).toBe("community");
+    expect(containers[0].nodeIds.sort()).toEqual(["a", "b"]);
+    expect(ungrouped).toEqual(["c"]);
+  });
+
   it("falls back to communities when only one folder present", () => {
     const nodes = Array.from({ length: 10 }, (_, i) =>
       node(`n${i}`, `services/n${i}.go`),

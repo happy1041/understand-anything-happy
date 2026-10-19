@@ -210,6 +210,24 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
     expect(await portal.text()).toContain("Demo / 产物");
   });
 
+  it("keeps demo catalog independent from code graph", async () => {
+    const catalog = join(root, ".ua", "artifacts.json");
+    writeFileSync(catalog, JSON.stringify({version:1, items:[{
+      name:"Catalog-only demo",filePath:"outputs/demo/hero.mp4",artifactType:"video",summary:"Independent result"
+    }]}));
+    const portal = await fetch(`${base()}/artifacts/?token=${viewer.token}`);
+    const html = await portal.text();
+    expect(html).toContain("Catalog-only demo");
+    expect(html).toContain("<video controls");
+    const graph = await (await fetch(`${base()}/knowledge-graph.json?token=${viewer.token}`)).json();
+    expect(graph.nodes).toHaveLength(1);
+    expect(graph.nodes[0].type).toBe("file");
+    writeFileSync(catalog, "invalid json");
+    expect((await fetch(`${base()}/artifacts/?token=${viewer.token}`)).status).toBe(500);
+    expect((await fetch(`${base()}/knowledge-graph.json?token=${viewer.token}`)).status).toBe(200);
+    rmSync(catalog);
+  });
+
   it("falls back to legacy .understand-anything/ projects", async () => {
     const legacyRoot = setupProject(".understand-anything");
     const legacyViewer = await startViewer(legacyRoot);

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useDashboardStore } from "../store";
 import { useI18n } from "../contexts/I18nContext";
 import type { NodeType, EdgeType, KnowledgeGraph, GraphNode } from "@understand-anything/core/types";
-import { projectResourceUrl } from "../utils/projectLinks";
 
 // Badge color classes keyed by NodeType — must be kept in sync with core NodeType union.
 const typeBadgeColors: Record<NodeType, string> = {
@@ -276,7 +275,7 @@ function DomainNodeDetails({ node, graph }: { node: GraphNode; graph: KnowledgeG
   return null;
 }
 
-export default function NodeInfo({ accessToken }: { accessToken: string }) {
+export default function NodeInfo() {
   const graph = useDashboardStore((s) => s.graph);
   const selectedNodeId = useDashboardStore((s) => s.selectedNodeId);
   const nodeHistory = useDashboardStore((s) => s.nodeHistory);
@@ -310,7 +309,6 @@ export default function NodeInfo({ accessToken }: { accessToken: string }) {
   }
 
   const allEdges = activeGraph?.edges ?? [];
-  const artifactType = node.type === "resource" && "artifactType" in node && typeof node.artifactType === "string" ? node.artifactType : null;
   const connections = allEdges.filter(
     (e) => e.source === node.id || e.target === node.id,
   );
@@ -421,22 +419,13 @@ export default function NodeInfo({ accessToken }: { accessToken: string }) {
                 )}
               </div>
             </div>
-            {artifactType ? (
-              <a
-                href={projectResourceUrl(`/${node.filePath.replace(/^\/+/, "")}`, "", accessToken)}
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded border border-accent/30 text-accent hover:border-accent/60"
-              >
-                打开产物
-              </a>
-            ) : <button
+            <button
               type="button"
               onClick={() => openCodeViewer(node.id)}
               className="shrink-0 text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded border border-accent/30 text-accent hover:text-accent-bright hover:border-accent/60 transition-colors"
             >
               {t.common.openCode}
-            </button>}
+            </button>
           </div>
         </div>
       )}

@@ -18,7 +18,6 @@ export interface DeriveResult {
 
 const MIN_BUCKET_COUNT = 2;
 const MAX_CONCENTRATION = 0.7;
-const MIN_NODES_FOR_SUPPRESSION = 3;
 const ROOT_BUCKET = "~";
 
 /**
@@ -138,18 +137,23 @@ export function deriveContainers(
     }
   }
 
-  // Suppress single-child containers (their child becomes ungrouped).
-  // Skip suppression for tiny layers — with so few nodes, even single-item
-  // boxes carry useful folder context that shouldn't be discarded.
+  // A single-child container adds no grouping information. Keep its node
+  // visible directly, including tiny layers where community fallback would
+  // otherwise hide the only file inside a collapsed "Cluster A" box.
   const ungrouped: string[] = [];
-  if (nodes.length >= MIN_NODES_FOR_SUPPRESSION) {
-    containers = containers.filter((c) => {
-      if (c.nodeIds.length === 1) {
-        ungrouped.push(c.nodeIds[0]);
-        return false;
-      }
-      return true;
-    });
+  containers = containers.filter((c) => {
+    if (c.nodeIds.length === 1) {
+      ungrouped.push(c.nodeIds[0]);
+      return false;
+    }
+    return true;
+  });
+
+  // A sole group covering the whole visible layer merely repeats the layer
+  // boundary. Render its files and edges directly instead of requiring a
+  // second drill-in. A group beside ungrouped files still conveys a partition.
+  if (containers.length === 1 && ungrouped.length === 0) {
+    return { containers: [], ungrouped: nodes.map((n) => n.id) };
   }
 
   return { containers, ungrouped };

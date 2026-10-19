@@ -70,7 +70,7 @@ export default function MobileLayout({
   const isLearnMode = tourActive || persona === "junior";
   const infoContent = (
     <>
-      {selectedNodeId && <NodeInfo accessToken={accessToken} />}
+      {selectedNodeId && <NodeInfo />}
       {isLearnMode && (
         <Suspense fallback={null}>
           <LearnPanel />
