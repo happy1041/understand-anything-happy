@@ -51,6 +51,7 @@ import {
   findCrossLayerFileNodes,
 } from "../utils/edgeAggregation";
 import { deriveContainers } from "../utils/containers";
+import { resolveTourTargets } from "../utils/tourTargets";
 import type { DerivedContainer } from "../utils/containers";
 import { computeLayerStats } from "../utils/layerStats";
 
@@ -107,102 +108,65 @@ export const STRUCTURAL_VISIBLE_TYPES = new Set<string>([
 
 // ── Helper components that must live inside <ReactFlow> ────────────────
 
-/**
- * Pans/zooms to tour-highlighted nodes. Highlighted nodes are usually
- * children of collapsed containers — auto-expand fires synchronously on
- * the same `tourHighlightedNodeIds` change, but their child entries don't
- * appear in React Flow's node list until Stage 2 layout writes the
- * `containerLayoutCache` (async ELK call, hundreds of ms on big layers).
- *
- * We subscribe to React Flow's reactive node list via `useNodes()` so the
- * effect re-runs every time the node set actually changes (Stage 1, Stage
- * 2, expand/collapse). When every highlighted id is present we fit; until
- * then we wait. A 2s fallback timer covers the case where a highlighted
- * id is filtered out and never materialises.
- */
-function TourFitView() {
-  const tourHighlightedNodeIds = useDashboardStore((s) => s.tourHighlightedNodeIds);
+/** Fit only view-resolved targets, with one wall-clock deadline per tour step. */
+function TourFitView({ targetNodeIds, requestKey }: { targetNodeIds: string[]; requestKey: string }) {
   const setTourFitPending = useDashboardStore((s) => s.setTourFitPending);
   const { fitView, getInternalNode } = useReactFlow();
-  // Subscribe to React Flow's user-node array so this effect re-fires when
-  // the node set changes (e.g. Stage 2 finally lands the highlighted ids
-  // after the per-step RAF window already gave up). The RAF poll inside
-  // covers the common fast path; the `nodes` dep covers slow Stage 2.
   const nodes = useNodes();
-  const fittedKeyRef = useRef<string>("");
-  const fallbackKeyRef = useRef<string>("");
+  const fittedKeyRef = useRef("");
+  const fallbackKeyRef = useRef("");
+  const deadlineRef = useRef({ key: "", at: 0 });
 
   useEffect(() => {
-    const targetKey = tourHighlightedNodeIds.join("\n");
-    if (targetKey === "") {
+    if (!requestKey) {
       fittedKeyRef.current = "";
       fallbackKeyRef.current = "";
+      deadlineRef.current = { key: "", at: 0 };
       setTourFitPending(false);
       return;
     }
-    if (targetKey === fittedKeyRef.current) return;
-
-    // Poll React Flow's internal lookup directly — `useNodes()` reflects
-    // user-supplied nodes and may not fire on measure completion. Once
-    // every highlighted id has measured dimensions, `fitView({ nodes })`
-    // handles the child→absolute coordinate transform itself, which is
-    // more reliable than recomputing bbox manually.
-    const MAX_FRAMES = 240; // ~4s at 60fps
-    let frame = 0;
+    if (deadlineRef.current.key !== requestKey) {
+      deadlineRef.current = { key: requestKey, at: performance.now() + 1500 };
+    }
+    // A view can legitimately have no representatives after filtering.
+    if (!targetNodeIds.length) { setTourFitPending(false); return; }
+    const fitKey = requestKey + "\0" + targetNodeIds.join("\n");
+    if (fittedKeyRef.current === fitKey) return;
     let cancelled = false;
     let rafId = 0;
-    // After we've already shown the fallback for this step, suppress the
-    // "Locating tour highlight…" overlay on subsequent re-fires (each
-    // `nodes` change re-enters the effect, but the user has already given
-    // up waiting). The retry still runs silently in case Stage 2 lands.
-    if (fallbackKeyRef.current !== targetKey) setTourFitPending(true);
-
-    const tick = () => {
+    if (fallbackKeyRef.current !== requestKey) setTourFitPending(true);
+    const fallback = () => {
       if (cancelled) return;
-      let ready = true;
-      for (const id of tourHighlightedNodeIds) {
-        const internal = getInternalNode(id);
-        if (!internal || !internal.measured?.width || !internal.measured?.height) {
-          ready = false;
-          break;
-        }
-      }
-      if (ready) {
-        fitView({
-          nodes: tourHighlightedNodeIds.map((id) => ({ id })),
-          duration: 500,
-          padding: 0.3,
-          maxZoom: 1.2,
-          minZoom: 0.4,
-        });
-        fittedKeyRef.current = targetKey;
-        fallbackKeyRef.current = "";
-        setTourFitPending(false);
-        return;
-      }
-      if (++frame < MAX_FRAMES) {
-        rafId = requestAnimationFrame(tick);
-        return;
-      }
-      // Highlights still not ready after the poll window. Pan into the
-      // layer so the user isn't stranded, but DON'T set fittedKeyRef —
-      // if Stage 2 lands later, a `nodes` change will re-fire this effect
-      // and we'll get another shot at the proper highlight fit.
-      // `fallbackKeyRef` prevents the fallback fitView from re-firing on
-      // every subsequent nodes update for the same step.
-      if (fallbackKeyRef.current !== targetKey) {
-        fitView({ duration: 500, padding: 0.3 });
-        fallbackKeyRef.current = targetKey;
+      cancelAnimationFrame(rafId);
+      if (fallbackKeyRef.current !== requestKey) {
+        void fitView({ duration: 300, padding: 0.3 });
+        fallbackKeyRef.current = requestKey;
       }
       setTourFitPending(false);
+    };
+    // Unlike a frame counter, this cannot be reset by every node update.
+    const timer = window.setTimeout(fallback, Math.max(0, deadlineRef.current.at - performance.now()));
+    const tick = () => {
+      if (cancelled) return;
+      const ready = targetNodeIds.every((id) => {
+        const node = getInternalNode(id);
+        return node && (node.measured?.width ?? node.width) && (node.measured?.height ?? node.height);
+      });
+      if (ready) {
+        window.clearTimeout(timer);
+        void fitView({ nodes: targetNodeIds.map(id => ({ id })), duration: 300, padding: 0.3, maxZoom: 1.2, minZoom: 0.4 });
+        fittedKeyRef.current = fitKey;
+        setTourFitPending(false);
+      } else if (performance.now() >= deadlineRef.current.at) fallback();
+      else rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => {
       cancelled = true;
       cancelAnimationFrame(rafId);
+      window.clearTimeout(timer);
     };
-  }, [tourHighlightedNodeIds, nodes, fitView, getInternalNode, setTourFitPending]);
-
+  }, [targetNodeIds, requestKey, nodes, fitView, getInternalNode, setTourFitPending]);
   return null;
 }
 
@@ -980,6 +944,7 @@ function buildCustomFlowNode(
  *     the underlying file→file edges from `topo.filteredEdges`.
  */
 function useLayerDetailGraph() {
+  const graph = useDashboardStore((s) => s.graph);
   const selectedNodeId = useDashboardStore((s) => s.selectedNodeId);
   const searchResults = useDashboardStore((s) => s.searchResults);
   const tourHighlightedNodeIds = useDashboardStore((s) => s.tourHighlightedNodeIds);
@@ -1115,7 +1080,7 @@ function useLayerDetailGraph() {
     const combined: Node[] = [...topo.nodes, ...expandedChildNodes];
 
     const searchMap = new Map(searchResults.map((r) => [r.nodeId, r.score]));
-    const tourSet = new Set(tourHighlightedNodeIds);
+    const tourSet = new Set(resolveTourTargets(tourHighlightedNodeIds, graph?.edges ?? [], new Set(topo.nodeToContainer.keys())));
 
     // Build neighbor set for selection highlighting
     const neighborNodeIds = new Set<string>();
@@ -1192,6 +1157,8 @@ function useLayerDetailGraph() {
       return { ...node, data: { ...data, isHighlighted, searchScore, isSelected, isTourHighlighted, isNeighbor, isSelectionFaded } };
     });
   }, [
+    graph,
+    topo.nodeToContainer,
     topo.nodes,
     expandedChildNodes,
     topo.filteredEdges,
@@ -1320,6 +1287,7 @@ function useLayerDetailGraph() {
 
 function GraphViewInner() {
   const graph = useDashboardStore((s) => s.graph);
+  const nodeIdToLayerId = useDashboardStore((s) => s.nodeIdToLayerId);
   const navigationLevel = useDashboardStore((s) => s.navigationLevel);
   const activeLayerId = useDashboardStore((s) => s.activeLayerId);
   const selectNode = useDashboardStore((s) => s.selectNode);
@@ -1347,6 +1315,12 @@ function GraphViewInner() {
   } = navigationLevel === "overview"
     ? { ...overviewGraph, nodeToContainer: undefined, containerIds: undefined }
     : detailGraph;
+
+  const tourFitTargetNodeIds = useMemo(() => {
+    const candidates = new Set(nodeToContainer?.keys());
+    for (const node of initialNodes) candidates.add(node.id);
+    return resolveTourTargets(tourHighlightedNodeIds, graph?.edges ?? [], candidates, nodeIdToLayerId);
+  }, [tourHighlightedNodeIds, graph, nodeToContainer, initialNodes, nodeIdToLayerId]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -1432,7 +1406,7 @@ function GraphViewInner() {
     if (!nodeToContainer) return;
 
     const needed = new Set<string>();
-    for (const nid of tourHighlightedNodeIds) {
+    for (const nid of tourFitTargetNodeIds) {
       const cid = nodeToContainer.get(nid);
       if (cid && cid !== nid) needed.add(cid);
     }
@@ -1455,7 +1429,7 @@ function GraphViewInner() {
     }
 
     tourBorrowedContainersRef.current = stillBorrowed;
-  }, [tourHighlightedNodeIds, nodeToContainer, expandContainer, collapseContainer]);
+  }, [tourFitTargetNodeIds, nodeToContainer, expandContainer, collapseContainer]);
 
   // Zoom: debounced auto-expand when the user has zoomed in past 1.0.
   // Hysteresis: zoom < 0.6 = no auto-expand AND no auto-collapse (v1, the
@@ -1569,7 +1543,7 @@ function GraphViewInner() {
           maskColor="var(--glass-bg)"
           className="!bg-surface !border !border-border-subtle"
         />
-        <TourFitView />
+        <TourFitView targetNodeIds={tourFitTargetNodeIds} requestKey={tourHighlightedNodeIds.join("\n")} />
         <SelectedNodeFitView />
       </ReactFlow>
       {(layoutStatus === "computing" || tourFitPending) && (

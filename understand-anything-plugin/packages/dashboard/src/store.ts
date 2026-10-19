@@ -92,6 +92,31 @@ function buildGraphIndexes(graph: KnowledgeGraph): {
       set.add(layer.id);
     }
   }
+  // Layers list files, while tours can reference their classes and methods.
+  // Inherit ownership through contains edges so symbol-only steps navigate too.
+  const children = new Map<string, string[]>();
+  for (const edge of graph.edges) {
+    if (edge.type !== "contains" || !nodesById.has(edge.target)) continue;
+    const list = children.get(edge.source) ?? [];
+    list.push(edge.target);
+    children.set(edge.source, list);
+  }
+  for (const layer of graph.layers) {
+    const queue = [...layer.nodeIds];
+    const visited = new Set<string>();
+    for (let i = 0; i < queue.length; i++) {
+      const id = queue[i];
+      if (visited.has(id)) continue;
+      visited.add(id);
+      for (const child of children.get(id) ?? []) {
+        if (!nodeIdToLayerId.has(child)) nodeIdToLayerId.set(child, layer.id);
+        const memberships = nodeIdToLayerIds.get(child) ?? new Set<string>();
+        memberships.add(layer.id);
+        nodeIdToLayerIds.set(child, memberships);
+        queue.push(child);
+      }
+    }
+  }
   return { nodesById, nodeIdToLayerId, nodeIdToLayerIds };
 }
 
