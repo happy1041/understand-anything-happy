@@ -213,13 +213,29 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
 
   it("keeps demo catalog independent from code graph", async () => {
     const catalog = join(root, ".ua", "artifacts.json");
-    writeFileSync(catalog, JSON.stringify({version:1, items:[{
-      name:"Catalog-only demo",filePath:"outputs/demo/hero.mp4",artifactType:"video",summary:"Independent result"
-    }]}));
+    writeFileSync(catalog, JSON.stringify({version:1,
+      groups:[{id:"current",name:"Current model"},{id:"previous",name:"Previous model"}],
+      items:[{
+        group:"current",name:"Catalog-only demo",filePath:"outputs/demo/hero.mp4",artifactType:"video",
+        summary:"Independent result",links:[{name:"Force record",filePath:"outputs/demo/data.json"}]
+      },{group:"previous",name:"Old demo",filePath:"outputs/demo/INDEX.md",artifactType:"report",
+         status:"Failed <example>",summary:"Preserved comparison"}
+    ]}));
     const portal = await fetch(`${base()}/artifacts/?token=${viewer.token}`);
     const html = await portal.text();
     expect(html).toContain("Catalog-only demo");
     expect(html).toContain("<video controls");
+    expect(html).toContain('preload="none"');
+    expect(html).toContain("Force record");
+    expect(html).not.toContain("Old demo");
+    const historical = await (await fetch(`${base()}/artifacts/?token=${viewer.token}&group=previous`)).text();
+    expect(historical).toContain("Old demo");
+    expect(historical).toContain("Failed &lt;example&gt;");
+    expect(historical).not.toContain("Catalog-only demo");
+    const all = await (await fetch(`${base()}/artifacts/?token=${viewer.token}&group=all`)).text();
+    expect(all).toContain("Old demo"); expect(all).toContain("Catalog-only demo");
+    expect((await fetch(`${base()}/artifacts/?token=${viewer.token}&group=unknown`)).status).toBe(404);
+    expect((await fetch(`${base()}/artifacts/?group=previous`)).status).toBe(403);
     const graph = await (await fetch(`${base()}/knowledge-graph.json?token=${viewer.token}`)).json();
     expect(graph.nodes).toHaveLength(1);
     expect(graph.nodes[0].type).toBe("file");

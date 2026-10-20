@@ -331,30 +331,52 @@ function projectPath(pathname) {
 function htmlPage(res, title, body) {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; object-src 'none'; base-uri 'none'");
-  res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}</style><nav><a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · <a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
+  res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}.versions{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}.versions a,.badge{border:1px solid #475569;border-radius:8px;padding:6px 12px;text-decoration:none}.versions a[aria-current="page"]{background:#334155;border-color:#93c5fd;color:white}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px}.version{margin:32px 0 48px}.version h2{margin-bottom:4px}article h3{margin-top:8px}article .links{display:flex;flex-wrap:wrap;gap:12px}.badge{display:inline-block;font-size:12px;padding:2px 8px}details{margin-top:14px}summary{cursor:pointer}img,video{display:block;width:100%;object-fit:contain;border-radius:6px}</style><nav><a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · <a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
 }
-function serveArtifacts(res) {
-  // Artifacts are an independent catalog, not architecture graph nodes.
+function serveArtifacts(res, url) {
+  // Only preserved output groups are switched. Code, graph and runtime stay current.
   const catalogPath = path.join(graphDir, "artifacts.json");
-  let items = [];
+  let groups = [], items = [];
   if (fs.existsSync(catalogPath)) {
     try {
       const catalog = JSON.parse(fs.readFileSync(catalogPath, "utf8"));
-      if (!Array.isArray(catalog.items)) throw new Error("Missing items");
-      items = catalog.items;
+      groups = catalog.groups; items = catalog.items;
+      if (!Array.isArray(groups) || !Array.isArray(items)) throw new Error("Missing groups/items");
+      const ids = new Set(groups.map(g => g.id));
+      if (ids.size !== groups.length || groups.some(g => typeof g.id !== "string" || !/^[a-z0-9_-]+$/.test(g.id) || g.id === "all" || typeof g.name !== "string") ||
+          items.some(n => !ids.has(n.group) || typeof n.filePath !== "string" || typeof n.name !== "string" || !n.artifactType ||
+            (n.links !== undefined && (!Array.isArray(n.links) || n.links.some(l => typeof l.name !== "string" || typeof l.filePath !== "string")))))
+        throw new Error("Invalid artifact groups");
     } catch {
-      sendJson(res, 500, { error: "Failed to read artifact catalog" });
-      return;
+      sendJson(res, 500, { error: "Failed to read artifact catalog" }); return;
     }
   }
-  const cards = items.filter(n => typeof n.filePath === "string" && typeof n.name === "string" && n.artifactType).map(n => {
-    const href = artifactHref(normalizeGraphPath(n.filePath) ?? "");
-    const preview = n.artifactPreview ? artifactHref(n.artifactPreview) : "";
-    const media = n.artifactType === "video" ? `<video controls preload="metadata" src="${escapeHtml(href)}"${preview ? ` poster="${escapeHtml(preview)}"` : ""}></video>` : n.artifactType === "image" ? `<img loading="lazy" src="${escapeHtml(href)}" alt="${escapeHtml(n.name)}">` : preview ? `<img loading="lazy" src="${escapeHtml(preview)}" alt="${escapeHtml(n.name)}">` : "";
-    return `<article><h2><a href="${escapeHtml(href)}">${escapeHtml(n.name)}</a></h2>${media}<p>${escapeHtml(n.summary ?? "")}</p><small>${escapeHtml(n.filePath)}</small></article>`;
-  }).join("");
-  htmlPage(res, "Demo / 产物", `<p>原速视频、资产与实验记录。各项说明标明验证范围，完整配置和日志见批次索引。</p><p>${["outputs", "assets", "gpt-docs"].map(p => `<a href="${artifactHref(p + "/")}">${p}</a>`).join(" · ")}</p><main>${cards}</main>`);
+  const selected = url.searchParams.get("group") ?? groups[0]?.id ?? "all";
+  if (selected !== "all" && !groups.some(g => g.id === selected)) {
+    sendJson(res, 404, { error: "Unknown artifact group" }); return;
+  }
+  const groupHref = id => `/artifacts/?group=${encodeURIComponent(id)}&token=${encodeURIComponent(ACCESS_TOKEN)}`;
+  const nav = [...groups, {id:"all", name:"全部版本"}].map(g =>
+    `<a href="${escapeHtml(groupHref(g.id))}"${selected === g.id ? ' aria-current="page"' : ""}>${escapeHtml(g.name)}</a>`).join("");
+  const link = (label, filePath) => projectPath("/" + filePath)
+    ? `<a href="${escapeHtml(artifactHref(filePath))}">${escapeHtml(label)}</a>`
+    : `<small>${escapeHtml(label)}：文件不可用</small>`;
+  const card = n => {
+    const exists = projectPath("/" + n.filePath);
+    const href = artifactHref(n.filePath);
+    const preview = n.artifactPreview && projectPath("/" + n.artifactPreview) ? artifactHref(n.artifactPreview) : "";
+    const media = !exists ? "" : n.artifactType === "video"
+      ? `<video controls preload="none" src="${escapeHtml(href)}"${preview ? ` poster="${escapeHtml(preview)}"` : ""}></video>`
+      : n.artifactType === "image" ? `<img loading="lazy" src="${escapeHtml(href)}" alt="${escapeHtml(n.name)}">`
+      : preview ? `<img loading="lazy" src="${escapeHtml(preview)}" alt="${escapeHtml(n.name)}">` : "";
+    const links = (n.links ?? []).map(l => link(l.name, l.filePath)).join("");
+    return `<article>${n.status ? `<span class="badge">${escapeHtml(n.status)}</span>` : ""}<h3>${link(n.name, n.filePath)}</h3>${media}<p>${escapeHtml(n.summary ?? "")}</p><div class="links">${links}</div></article>`;
+  };
+  const sections = groups.filter(g => selected === "all" || g.id === selected).map(g =>
+    `<section class="version"><header><small>${escapeHtml(g.date ?? "")}${g.status ? " · " + escapeHtml(g.status) : ""}</small><h2>${escapeHtml(g.name)}</h2><p>${escapeHtml(g.summary ?? "")}</p></header><div class="cards">${items.filter(n => n.group === g.id).map(card).join("")}</div></section>`).join("");
+  htmlPage(res, "Demo / 产物", `<p>按模型版本查看已保存的演示与实验结果。每版保留代表演示、对照和完整记录。</p><nav class="versions" aria-label="产物版本">${nav}</nav>${sections || "<p>尚无已登记的产物。</p>"}<details><summary>浏览原始文件</summary><p>${["outputs", "assets"].map(p => link(p, p + "/")).join(" · ")}</p></details>`);
 }
+
 function serveProject(req, res, item, url) {
   if (item.stat.isDirectory()) {
     const entries = fs.readdirSync(item.absolute, {withFileTypes:true}).filter(e => !e.name.startsWith(".")).sort((a,b) => a.name.localeCompare(b.name));
@@ -421,7 +443,7 @@ const server = createServer((req, res) => {
   }
   if (!["GET", "HEAD"].includes(req.method)) { res.writeHead(405); res.end(); return; }
   res.setHeader("Cache-Control", "no-store");
-  if (pathname === "/artifacts/" || pathname === "/artifacts") { serveArtifacts(res); return; }
+  if (pathname === "/artifacts/" || pathname === "/artifacts") { serveArtifacts(res, url); return; }
   if (pathname === "/artifact-content.json") {
     const source = projectPath("/" + (url.searchParams.get("path") ?? ""));
     if (!source || !source.stat.isFile()) { sendJson(res,404,{error:"File not found"}); return; }
