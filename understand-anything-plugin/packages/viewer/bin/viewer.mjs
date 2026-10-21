@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * understand-anything-viewer — serve a generated knowledge graph in the
- * dashboard UI with nothing but Node.js. Read-only, no Claude Code, no LLM.
+ * dashboard UI with nothing but Node.js. No Claude Code, no LLM.
+ * Graph/artifact contents are read-only; artifact display preferences are editable.
  *
  * Usage:
  *     understand-anything-viewer [project-dir] [--port <n>] [--no-open]
@@ -330,10 +331,10 @@ function projectPath(pathname) {
 }
 function htmlPage(res, title, body) {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; object-src 'none'; base-uri 'none'");
-  res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}.versions{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}.versions a,.badge{border:1px solid #475569;border-radius:8px;padding:6px 12px;text-decoration:none}.versions a[aria-current="page"]{background:#334155;border-color:#93c5fd;color:white}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px}.version{margin:32px 0 48px}.version h2{margin-bottom:4px}article h3{margin-top:8px}article .links{display:flex;flex-wrap:wrap;gap:12px}.badge{display:inline-block;font-size:12px;padding:2px 8px}details{margin-top:14px}summary{cursor:pointer}img,video{display:block;width:100%;object-fit:contain;border-radius:6px}</style><nav><a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · <a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
+  res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'");
+  res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}.versions{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}.versions a,.badge{border:1px solid #475569;border-radius:8px;padding:6px 12px;text-decoration:none}.versions a[aria-current="page"]{background:#334155;border-color:#93c5fd;color:white}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px}.version{margin:32px 0 48px}.version h2{margin-bottom:4px}article h3{margin-top:8px}article .links{display:flex;flex-wrap:wrap;gap:12px}.badge{display:inline-block;font-size:12px;padding:2px 8px}button{font:inherit;background:#1f2937;color:#e5e7eb;border:1px solid #64748b;border-radius:6px;padding:5px 12px;cursor:pointer}button:disabled{opacity:.4;cursor:default}.manage{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.manage form{display:inline}.removed li{margin:8px 0}details{margin-top:14px}summary{cursor:pointer}img,video{display:block;width:100%;object-fit:contain;border-radius:6px}</style><nav><a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · <a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
 }
-function serveArtifacts(res, url) {
+function readArtifactCatalog() {
   // Only preserved output groups are switched. Code, graph and runtime stay current.
   const catalogPath = path.join(graphDir, "artifacts.json");
   let groups = [], items = [];
@@ -348,9 +349,80 @@ function serveArtifacts(res, url) {
             (n.links !== undefined && (!Array.isArray(n.links) || n.links.some(l => typeof l.name !== "string" || typeof l.filePath !== "string")))))
         throw new Error("Invalid artifact groups");
     } catch {
-      sendJson(res, 500, { error: "Failed to read artifact catalog" }); return;
+      throw new Error("Failed to read artifact catalog");
     }
   }
+  return { groups, items };
+}
+// Keep presentation changes separate from the evidence catalog, which experiments
+// may update independently. New catalog versions appear before explicitly ordered ones.
+const displayPath = path.join(graphDir, "artifact-display.json");
+function readArtifactDisplay(groups) {
+  const preferences = fs.existsSync(displayPath) ? JSON.parse(fs.readFileSync(displayPath, "utf8")) : {};
+  if (["order", "hidden"].some(key => preferences[key] !== undefined &&
+      (!Array.isArray(preferences[key]) || preferences[key].some(id => typeof id !== "string"))))
+    throw new Error("Invalid artifact display preferences");
+  const ids = groups.map(g => g.id);
+  const order = [...new Set(preferences.order ?? [])].filter(id => ids.includes(id));
+  const hidden = [...new Set(preferences.hidden ?? [])].filter(id => ids.includes(id));
+  return { order: [...ids.filter(id => !order.includes(id)), ...order], hidden };
+}
+function editArtifactDisplay(req, res, url) {
+  // A cookie alone must never authorize a write. Form actions carry the same
+  // explicit capability token as the protected read links.
+  if (url.searchParams.get("token") !== ACCESS_TOKEN ||
+      (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
+    sendJson(res, 403, { error: "Forbidden display update" }); return;
+  }
+  if (req.headers["content-type"]?.split(";")[0] !== "application/x-www-form-urlencoded") {
+    sendJson(res, 415, { error: "Expected form data" }); return;
+  }
+  let body = "", rejected = false;
+  req.on("data", chunk => {
+    if (rejected) return;
+    body += chunk;
+    if (Buffer.byteLength(body) > 4096) { rejected = true; sendJson(res, 413, { error: "Form too large" }); }
+  });
+  req.on("end", () => {
+    if (rejected) return;
+    try {
+      const { groups } = readArtifactCatalog();
+      const prefs = readArtifactDisplay(groups);
+      const form = new URLSearchParams(body), group = form.get("group"), action = form.get("action");
+      if (!groups.some(g => g.id === group) || !["hide", "restore", "up", "down"].includes(action)) {
+        sendJson(res, 400, { error: "Unknown version or action" }); return;
+      }
+      const visible = prefs.order.filter(id => !prefs.hidden.includes(id));
+      const at = visible.indexOf(group);
+      let selected = group;
+      if (action === "hide") {
+        if (!prefs.hidden.includes(group)) prefs.hidden.push(group);
+        selected = visible[at + 1] ?? visible[at - 1] ?? "all";
+      } else if (action === "restore") {
+        prefs.hidden = prefs.hidden.filter(id => id !== group);
+      } else if (at !== -1) {
+        const other = visible[at + (action === "up" ? -1 : 1)];
+        if (other) {
+          const i = prefs.order.indexOf(group), j = prefs.order.indexOf(other);
+          [prefs.order[i], prefs.order[j]] = [prefs.order[j], prefs.order[i]];
+        }
+      }
+      const temporary = `${displayPath}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+      try {
+        fs.writeFileSync(temporary, JSON.stringify({ version: 1, ...prefs }, null, 2) + "\n", { flag: "wx" });
+        fs.renameSync(temporary, displayPath);
+      } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+      res.writeHead(303, { Location: `/artifacts/?group=${encodeURIComponent(selected)}&token=${encodeURIComponent(ACCESS_TOKEN)}` });
+      res.end();
+    } catch { sendJson(res, 500, { error: "Failed to update artifact display preferences" }); }
+  });
+}
+function serveArtifacts(res, url) {
+  let catalog, prefs;
+  try { catalog = readArtifactCatalog(); prefs = readArtifactDisplay(catalog.groups); }
+  catch { sendJson(res, 500, { error: "Failed to read artifact catalog or display preferences" }); return; }
+  const { items } = catalog;
+  const groups = prefs.order.filter(id => !prefs.hidden.includes(id)).map(id => catalog.groups.find(g => g.id === id));
   const selected = url.searchParams.get("group") ?? groups[0]?.id ?? "all";
   if (selected !== "all" && !groups.some(g => g.id === selected)) {
     sendJson(res, 404, { error: "Unknown artifact group" }); return;
@@ -358,6 +430,10 @@ function serveArtifacts(res, url) {
   const groupHref = id => `/artifacts/?group=${encodeURIComponent(id)}&token=${encodeURIComponent(ACCESS_TOKEN)}`;
   const nav = [...groups, {id:"all", name:"全部版本"}].map(g =>
     `<a href="${escapeHtml(groupHref(g.id))}"${selected === g.id ? ' aria-current="page"' : ""}>${escapeHtml(g.name)}</a>`).join("");
+  const displayForm = (id, action, label, disabled = false) => `<form method="post" action="/artifacts/display?token=${encodeURIComponent(ACCESS_TOKEN)}"><input type="hidden" name="group" value="${escapeHtml(id)}"><button name="action" value="${action}"${disabled ? " disabled" : ""}>${label}</button></form>`;
+  const selectedIndex = groups.findIndex(g => g.id === selected);
+  const controls = selectedIndex < 0 ? "" : `<div class="manage" aria-label="管理选定版本"><span>${escapeHtml(groups[selectedIndex].name)}</span>${displayForm(selected, "up", "前移", selectedIndex === 0)}${displayForm(selected, "down", "后移", selectedIndex === groups.length - 1)}${displayForm(selected, "hide", "从列表移除")}</div><small>仅调整展示入口，原始文件保留。</small>`;
+  const removed = prefs.hidden.length ? `<details class="removed"><summary>已移除版本（${prefs.hidden.length}）</summary><ul>${prefs.hidden.map(id => `<li class="manage"><span>${escapeHtml(catalog.groups.find(g => g.id === id).name)}</span>${displayForm(id, "restore", "恢复")}</li>`).join("")}</ul></details>` : "";
   const link = (label, filePath) => projectPath("/" + filePath)
     ? `<a href="${escapeHtml(artifactHref(filePath))}">${escapeHtml(label)}</a>`
     : `<small>${escapeHtml(label)}：文件不可用</small>`;
@@ -374,7 +450,7 @@ function serveArtifacts(res, url) {
   };
   const sections = groups.filter(g => selected === "all" || g.id === selected).map(g =>
     `<section class="version"><header><small>${escapeHtml(g.date ?? "")}${g.status ? " · " + escapeHtml(g.status) : ""}</small><h2>${escapeHtml(g.name)}</h2><p>${escapeHtml(g.summary ?? "")}</p></header><div class="cards">${items.filter(n => n.group === g.id).map(card).join("")}</div></section>`).join("");
-  htmlPage(res, "Demo / 产物", `<p>按模型版本查看已保存的演示与实验结果。每版保留代表演示、对照和完整记录。</p><nav class="versions" aria-label="产物版本">${nav}</nav>${sections || "<p>尚无已登记的产物。</p>"}<details><summary>浏览原始文件</summary><p>${["outputs", "assets"].map(p => link(p, p + "/")).join(" · ")}</p></details>`);
+  htmlPage(res, "Demo / 产物", `<p>按模型版本查看已保存的演示与实验结果。每版保留代表演示、对照和完整记录。</p><nav class="versions" aria-label="产物版本">${nav}</nav>${controls}${removed}${sections || (prefs.hidden.length ? "<p>当前没有显示的版本，可在“已移除版本”中恢复。</p>" : "<p>尚无已登记的产物。</p>")}<details><summary>浏览原始文件</summary><p>${["outputs", "assets"].map(p => link(p, p + "/")).join(" · ")}</p></details>`);
 }
 
 function serveProject(req, res, item, url) {
@@ -432,7 +508,7 @@ const server = createServer((req, res) => {
   const authenticated = queryToken !== null ? queryToken === ACCESS_TOKEN : cookieToken === ACCESS_TOKEN;
   if (queryToken === ACCESS_TOKEN) res.setHeader("Set-Cookie", `ua_access=${ACCESS_TOKEN}; HttpOnly; SameSite=Strict; Path=/`);
   const item = projectPath(pathname);
-  const artifactRequest = pathname === "/artifacts/" || pathname === "/artifacts" || pathname === "/artifact-content.json" || item;
+  const artifactRequest = pathname === "/artifacts/" || pathname === "/artifacts" || pathname === "/artifact-content.json" || pathname === "/artifacts/display" || item;
   if (!PROTECTED.has(pathname) && !artifactRequest) {
     serveStatic(res, pathname);
     return;
@@ -440,6 +516,11 @@ const server = createServer((req, res) => {
   if (!authenticated) {
     sendJson(res, 403, { error: "Forbidden: missing or invalid token" });
     return;
+  }
+  if (pathname === "/artifacts/display") {
+    res.setHeader("Cache-Control", "no-store");
+    if (req.method !== "POST") { res.writeHead(405, { Allow: "POST" }); res.end(); return; }
+    editArtifactDisplay(req, res, url); return;
   }
   if (!["GET", "HEAD"].includes(req.method)) { res.writeHead(405); res.end(); return; }
   res.setHeader("Cache-Control", "no-store");

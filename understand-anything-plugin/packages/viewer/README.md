@@ -24,3 +24,7 @@ gh release upload <tag> understand-anything-plugin/packages/viewer/understand-an
 ```
 
 The pack step builds the dashboard and embeds its compiled `dist/` into the package, producing a fully self-contained, zero-dependency tarball.
+
+## Local artifact catalog controls
+
+The Demo / 产物 page lets you select a version, move it earlier/later, or remove its display entry. Removed versions can be restored from the same page. These authenticated actions persist only `.ua/artifact-display.json` (or the active data directory equivalent); `artifacts.json` and output files are unchanged. Newly catalogued versions appear first.

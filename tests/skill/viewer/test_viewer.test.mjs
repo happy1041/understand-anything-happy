@@ -3,7 +3,7 @@
 // gate, graph sanitisation, file-content allowlist, and .ua/legacy resolution.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -243,6 +243,65 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
     expect((await fetch(`${base()}/artifacts/?token=${viewer.token}`)).status).toBe(500);
     expect((await fetch(`${base()}/knowledge-graph.json?token=${viewer.token}`)).status).toBe(200);
     rmSync(catalog);
+  });
+
+  it("persists version removal and ordering without changing catalog or outputs", async () => {
+    const catalogPath = join(root, ".ua", "artifacts.json");
+    const preferencesPath = join(root, ".ua", "artifact-display.json");
+    const catalog = { groups: ["one", "two", "three"].map(id => ({ id, name: `Version ${id}` })),
+      items: [{ group: "two", name: "Saved output", filePath: "outputs/demo/data.json", artifactType: "report" }] };
+    const original = JSON.stringify(catalog);
+    writeFileSync(catalogPath, original);
+    const output = readFileSync(join(root, "outputs/demo/data.json"));
+    const post = (group, action, extra = {}) => fetch(`${base()}/artifacts/display?token=${viewer.token}`, {
+      method: "POST", body: new URLSearchParams({ group, action }), redirect: "manual", ...extra,
+    });
+    const html = async (group = "all") => (await fetch(`${base()}/artifacts/?group=${group}&token=${viewer.token}`)).text();
+    const nav = text => text.match(/<nav class="versions"[^>]*>(.*?)<\/nav>/s)[1];
+    try {
+      expect(await html("two")).toContain("从列表移除");
+      expect((await post("two", "up")).status).toBe(303);
+      let shown = nav(await html());
+      expect(shown.indexOf("Version two")).toBeLessThan(shown.indexOf("Version one"));
+      expect((await post("two", "hide")).status).toBe(303);
+      const hidden = await html();
+      expect(nav(hidden)).not.toContain("Version two");
+      expect(hidden).not.toContain("Saved output");
+      expect(hidden).toContain("已移除版本（1）");
+      expect(JSON.parse(readFileSync(preferencesPath, "utf8")).hidden).toEqual(["two"]);
+      const restarted = await startViewer(root);
+      try {
+        const persisted = await (await fetch(`http://127.0.0.1:${restarted.port}/artifacts/?token=${restarted.token}`)).text();
+        expect(nav(persisted)).not.toContain("Version two");
+      } finally { restarted.proc.kill(); }
+      // A newly published experiment appears automatically; preferences do not overwrite its catalog.
+      catalog.groups.unshift({ id: "new", name: "New version" });
+      writeFileSync(catalogPath, JSON.stringify(catalog));
+      shown = nav(await html());
+      expect(shown.indexOf("New version")).toBeLessThan(shown.indexOf("Version one"));
+      expect((await post("two", "restore")).status).toBe(303);
+      expect(await html()).toContain("Saved output");
+      expect((await post("two", "down")).status).toBe(303);
+      shown = nav(await html());
+      expect(shown.indexOf("Version one")).toBeLessThan(shown.indexOf("Version two"));
+      for (const id of ["new", "one", "two", "three"]) expect((await post(id, "hide")).status).toBe(303);
+      const empty = await html();
+      expect(empty).toContain("当前没有显示的版本");
+      expect(empty).toContain("已移除版本（4）");
+      expect(empty).not.toContain('aria-label="管理选定版本"');
+      expect((await post("two", "restore")).status).toBe(303);
+      expect(await html("two")).toContain("Saved output");
+      expect(readFileSync(catalogPath, "utf8")).toBe(JSON.stringify(catalog));
+      expect(readFileSync(join(root, "outputs/demo/data.json"))).toEqual(output);
+      expect((await post("missing", "hide")).status).toBe(400);
+      expect((await post("one", "delete-files")).status).toBe(400);
+      expect((await post("one", "hide", { headers: { Origin: "http://untrusted.test" } })).status).toBe(403);
+      expect((await fetch(`${base()}/artifacts/display`, { method: "POST", headers: { Cookie: `ua_access=${viewer.token}` }, body: new URLSearchParams({ group: "one", action: "hide" }) })).status).toBe(403);
+      expect((await fetch(`${base()}/artifacts/display?token=${viewer.token}`)).status).toBe(405);
+      expect((await post("one", "hide", { body: new URLSearchParams({ group: "x".repeat(5000), action: "hide" }) })).status).toBe(413);
+    } finally {
+      rmSync(catalogPath, { force: true }); rmSync(preferencesPath, { force: true });
+    }
   });
 
   it("falls back to legacy .understand-anything/ projects", async () => {
