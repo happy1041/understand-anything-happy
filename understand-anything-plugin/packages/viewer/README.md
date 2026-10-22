@@ -30,3 +30,7 @@ The pack step builds the dashboard and embeds its compiled `dist/` into the pack
 The Demo / 产物 page lets you select a version, move it earlier/later, or remove its display entry. Removed versions can be restored from the same page. These authenticated actions persist only `.ua/artifact-display.json` (or the active data directory equivalent); `artifacts.json` and output files are unchanged. Newly catalogued versions appear first.
 
 Markdown nodes open directly in the existing reader; source-code nodes keep their information panel and optional code preview. The reader renders GFM and `$…$` / `$$…$$` math locally with KaTeX. Project-relative document, image and output links retain access authentication; external links never receive the token.
+
+### Artifacts without a graph
+
+For projects using only the native Demo portal, run `understand-anything-viewer /path/to/project --artifacts-only`. This requires `.ua/artifacts.json` (or the existing legacy data directory), not an empty knowledge graph. The same token/origin checks and separate `artifact-display.json` preferences apply. Markdown links open an escaped text preview in this mode.

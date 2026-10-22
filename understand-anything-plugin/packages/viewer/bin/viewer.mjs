@@ -5,7 +5,7 @@
  * Graph/artifact contents are read-only; artifact display preferences are editable.
  *
  * Usage:
- *     understand-anything-viewer [project-dir] [--port <n>] [--no-open]
+ *     understand-anything-viewer [project-dir] [--port <n>] [--no-open] [--artifacts-only]
  *
  * The project directory (default: cwd) must contain a data directory —
  * `.ua/` or legacy `.understand-anything/` — with a knowledge-graph.json
@@ -40,6 +40,7 @@ let projectRoot = process.cwd();
 let port = 5173;
 let portExplicit = false;
 let openBrowser = true;
+let artifactsOnly = false;
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -51,10 +52,12 @@ for (let i = 0; i < args.length; i++) {
       console.error("Error: --port must be an integer between 0 and 65535");
       process.exit(1);
     }
+  } else if (a === "--artifacts-only") {
+    artifactsOnly = true;
   } else if (a === "--no-open") {
     openBrowser = false;
   } else if (a === "--help" || a === "-h") {
-    console.log("Usage: understand-anything-viewer [project-dir] [--port <n>] [--no-open]");
+    console.log("Usage: understand-anything-viewer [project-dir] [--port <n>] [--no-open] [--artifacts-only]");
     process.exit(0);
   } else if (!a.startsWith("-")) {
     projectRoot = path.resolve(a);
@@ -74,12 +77,12 @@ if (!fs.existsSync(DIST_DIR)) {
 
 const graphDir = UA_DIR_CANDIDATES
   .map((d) => path.join(projectRoot, d))
-  .find((d) => fs.existsSync(path.join(d, "knowledge-graph.json")));
+  .find((d) => fs.existsSync(path.join(d, artifactsOnly ? "artifacts.json" : "knowledge-graph.json")));
 
 if (!graphDir) {
   console.error(
-    `Error: no knowledge graph found under ${projectRoot}\n` +
-    "Expected .ua/knowledge-graph.json (or legacy .understand-anything/). " +
+    `Error: no ${artifactsOnly ? "artifact catalog" : "knowledge graph"} found under ${projectRoot}\n` +
+    `Expected ${artifactsOnly ? ".ua/artifacts.json" : ".ua/knowledge-graph.json"} (or legacy .understand-anything/). ` +
     "Generate one with /understand first, or pass the project directory as an argument.",
   );
   process.exit(1);
@@ -336,7 +339,7 @@ function htmlPage(res, title, body) {
   res.setHeader("Referrer-Policy", "same-origin");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'");
-  res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}.versions{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}.versions a,.badge{border:1px solid #475569;border-radius:8px;padding:6px 12px;text-decoration:none}.versions a[aria-current="page"]{background:#334155;border-color:#93c5fd;color:white}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px}.version{margin:32px 0 48px}.version h2{margin-bottom:4px}article h3{margin-top:8px}article .links{display:flex;flex-wrap:wrap;gap:12px}.badge{display:inline-block;font-size:12px;padding:2px 8px}button{font:inherit;background:#1f2937;color:#e5e7eb;border:1px solid #64748b;border-radius:6px;padding:5px 12px;cursor:pointer}button:disabled{opacity:.4;cursor:default}.manage{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.manage form{display:inline}.removed li{margin:8px 0}details{margin-top:14px}summary{cursor:pointer}img,video{display:block;width:100%;object-fit:contain;border-radius:6px}</style><nav><a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · <a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
+  res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}.versions{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}.versions a,.badge{border:1px solid #475569;border-radius:8px;padding:6px 12px;text-decoration:none}.versions a[aria-current="page"]{background:#334155;border-color:#93c5fd;color:white}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px}.version{margin:32px 0 48px}.version h2{margin-bottom:4px}article h3{margin-top:8px}article .links{display:flex;flex-wrap:wrap;gap:12px}.badge{display:inline-block;font-size:12px;padding:2px 8px}button{font:inherit;background:#1f2937;color:#e5e7eb;border:1px solid #64748b;border-radius:6px;padding:5px 12px;cursor:pointer}button:disabled{opacity:.4;cursor:default}.manage{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.manage form{display:inline}.removed li{margin:8px 0}details{margin-top:14px}summary{cursor:pointer}img,video{display:block;width:100%;object-fit:contain;border-radius:6px}</style><nav>${artifactsOnly ? "" : `<a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · `}<a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
 }
 function readArtifactCatalog() {
   // Only preserved output groups are switched. Code, graph and runtime stay current.
@@ -464,6 +467,10 @@ function serveProject(req, res, item, url) {
     return;
   }
   if (path.extname(item.relative).toLowerCase() === ".md") {
+    if (artifactsOnly) {
+      if (item.stat.size > MAX_SOURCE_FILE_BYTES) { sendJson(res, 413, {error:"File too large to preview"}); return; }
+      htmlPage(res, item.relative, `<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(fs.readFileSync(item.absolute,"utf8"))}</pre>`); return;
+    }
     res.writeHead(302, {Location: "/?document=" + encodeURIComponent(item.relative) + "&token=" + encodeURIComponent(ACCESS_TOKEN)}); res.end(); return;
   }
   const types = {...CONTENT_TYPES, ".mp4":"video/mp4", ".webm":"video/webm", ".jpg":"image/jpeg", ".jpeg":"image/jpeg", ".gif":"image/gif", ".csv":"text/csv; charset=utf-8", ".jsonl":"text/plain; charset=utf-8", ".log":"text/plain; charset=utf-8"};
@@ -511,6 +518,9 @@ const server = createServer((req, res) => {
   const cookieToken = (req.headers.cookie ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("ua_access="))?.slice(10);
   const authenticated = queryToken !== null ? queryToken === ACCESS_TOKEN : cookieToken === ACCESS_TOKEN;
   if (queryToken === ACCESS_TOKEN) res.setHeader("Set-Cookie", `ua_access=${ACCESS_TOKEN}; HttpOnly; SameSite=Strict; Path=/`);
+  if (artifactsOnly && pathname === "/") {
+    res.writeHead(302, {Location: "/artifacts/" + (authenticated ? "?token=" + encodeURIComponent(ACCESS_TOKEN) : "")}); res.end(); return;
+  }
   const item = projectPath(pathname);
   const artifactRequest = pathname === "/artifacts/" || pathname === "/artifacts" || pathname === "/artifact-content.json" || pathname === "/artifacts/display" || item;
   if (!PROTECTED.has(pathname) && !artifactRequest) {
@@ -583,7 +593,7 @@ function listen(attemptPort, attemptsLeft) {
   server.listen(attemptPort, "127.0.0.1", () => {
     const address = server.address();
     const boundPort = typeof address === "object" && address ? address.port : attemptPort;
-    const dashboardUrl = `http://127.0.0.1:${boundPort}/?token=${ACCESS_TOKEN}`;
+    const dashboardUrl = `http://127.0.0.1:${boundPort}/${artifactsOnly ? "artifacts/" : ""}?token=${ACCESS_TOKEN}`;
     console.log(`\n  Serving graph from ${graphDir}`);
     console.log(`  🔑  Dashboard URL: ${dashboardUrl}\n`);
     if (openBrowser) {

@@ -41,7 +41,7 @@ Start the Understand Anything dashboard to visualize the knowledge graph for the
    fi
    ```
 
-2. Check that `$UA_DIR/knowledge-graph.json` exists in the project directory. If not, tell the user:
+2. For an architecture dashboard, check that `$UA_DIR/knowledge-graph.json` exists in the project directory. If the user wants only Demo/artifact browsing and `$UA_DIR/artifacts.json` exists, use the local viewer's `--artifacts-only` mode instead: resolve the plugin root in step 3, then run `node "$PLUGIN_ROOT/packages/viewer/bin/viewer.mjs" "$PROJECT_DIR" --artifacts-only --no-open` and continue at step 7. This mode needs the installed local viewer; do not replace it with a downloaded release or create a placeholder graph. Otherwise, if the graph is missing, tell the user:
    ```
    No knowledge graph found. Run /understand first to analyze this project.
    ```
@@ -151,6 +151,7 @@ Start the Understand Anything dashboard to visualize the knowledge graph for the
    The dashboard is running in the background. Press Ctrl+C in the terminal to stop it.
    ```
    **Important:** Always include the `?token=` parameter in the URL you share. If you omit it, the user will be blocked by the token gate and have to manually find the token in the terminal output.
+   For artifacts-only mode, share the printed `/artifacts/?token=...` URL and identify `artifacts.json` as the catalog. Keep tokens in runtime output, outside committed project files.
 
 ## Notes
 
