@@ -9,6 +9,11 @@ import type {
 } from "@understand-anything/core/types";
 import type { ReactFlowInstance } from "@xyflow/react";
 
+function documentViewerState(node: GraphNode | undefined) {
+  const readable = Boolean(node?.filePath && /\.md$/i.test(node.filePath));
+  return { codeViewerOpen: readable, codeViewerNodeId: readable ? node!.id : null, codeViewerExpanded: false };
+}
+
 export type Persona = "non-technical" | "junior" | "experienced";
 export type NavigationLevel = "overview" | "layer-detail";
 export type NodeType = "file" | "function" | "class" | "module" | "concept" | "config" | "document" | "service" | "table" | "endpoint" | "pipeline" | "schema" | "resource" | "domain" | "flow" | "step" | "article" | "entity" | "topic" | "claim" | "source" | "page" | "screen" | "component" | "componentSet" | "instance" | "token";
@@ -444,15 +449,18 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
   },
 
   selectNode: (nodeId) => {
-    const { selectedNodeId, nodeHistory } = get();
+    const { selectedNodeId, nodeHistory, graph, domainGraph, viewMode } = get();
+    const activeGraph = viewMode === "domain" && domainGraph ? domainGraph : graph;
+    const viewer = documentViewerState(activeGraph?.nodes.find(n => n.id === nodeId));
     if (nodeId && selectedNodeId && nodeId !== selectedNodeId) {
       // Push current node to history before navigating away
       set({
         selectedNodeId: nodeId,
+        ...viewer,
         nodeHistory: [...nodeHistory, selectedNodeId].slice(-MAX_HISTORY),
       });
     } else {
-      set({ selectedNodeId: nodeId });
+      set({ selectedNodeId: nodeId, ...viewer });
     }
   },
 
@@ -472,9 +480,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
       ...nodeNavigationState(state, nodeId),
       selectedNodeId: nodeId,
       focusNodeId: null,
-      codeViewerOpen: false,
-      codeViewerNodeId: null,
-      codeViewerExpanded: false,
+      ...documentViewerState(graph.nodes.find(n => n.id === nodeId)),
       nodeHistory: newHistory,
     });
   },
@@ -488,6 +494,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
     set({
       ...nodeNavigationState(state, targetId),
       selectedNodeId: targetId,
+      ...documentViewerState(graph.nodes.find(n => n.id === targetId)),
       nodeHistory: newHistory,
     });
   },
@@ -501,6 +508,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
     set({
       ...nodeNavigationState(state, prevNodeId),
       selectedNodeId: prevNodeId,
+      ...documentViewerState(graph.nodes.find(n => n.id === prevNodeId)),
       nodeHistory: newHistory,
     });
   },
@@ -645,6 +653,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
       currentTourStep: 0,
       tourHighlightedNodeIds: sorted[0].nodeIds,
       selectedNodeId: null,
+      ...documentViewerState(undefined),
       ...layerNav,
       ...layerResetIfChanged(layerNav, activeLayerId),
     });
@@ -667,6 +676,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
       currentTourStep: step,
       tourHighlightedNodeIds: sorted[step].nodeIds,
       selectedNodeId: null,
+      ...documentViewerState(undefined),
       ...layerNav,
       ...layerResetIfChanged(layerNav, activeLayerId),
     });
@@ -683,6 +693,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
         currentTourStep: next,
         tourHighlightedNodeIds: sorted[next].nodeIds,
         selectedNodeId: null,
+      ...documentViewerState(undefined),
         ...layerNav,
         ...layerResetIfChanged(layerNav, activeLayerId),
       });
@@ -700,6 +711,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
         currentTourStep: prev,
         tourHighlightedNodeIds: sorted[prev].nodeIds,
         selectedNodeId: null,
+      ...documentViewerState(undefined),
         ...layerNav,
         ...layerResetIfChanged(layerNav, activeLayerId),
       });

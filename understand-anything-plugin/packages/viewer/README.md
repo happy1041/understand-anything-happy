@@ -28,3 +28,5 @@ The pack step builds the dashboard and embeds its compiled `dist/` into the pack
 ## Local artifact catalog controls
 
 The Demo / 产物 page lets you select a version, move it earlier/later, or remove its display entry. Removed versions can be restored from the same page. These authenticated actions persist only `.ua/artifact-display.json` (or the active data directory equivalent); `artifacts.json` and output files are unchanged. Newly catalogued versions appear first.
+
+Markdown nodes open directly in the existing reader; source-code nodes keep their information panel and optional code preview. The reader renders GFM and `$…$` / `$$…$$` math locally with KaTeX. Project-relative document, image and output links retain access authentication; external links never receive the token.

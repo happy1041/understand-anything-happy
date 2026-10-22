@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Highlight, themes } from "prism-react-renderer";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { useDashboardStore } from "../store";
 import { useI18n } from "../contexts/I18nContext";
 import { projectResourceUrl } from "../utils/projectLinks";
@@ -60,11 +63,12 @@ function formatBytes(bytes: number): string {
 }
 
 /** Rendered markdown view for .md files, styled for the dark theme. */
-function MarkdownView({ content, sourcePath, accessToken }: { content: string; sourcePath: string; accessToken: string }) {
+export function MarkdownView({ content, sourcePath, accessToken }: { content: string; sourcePath: string; accessToken: string }) {
   return (
     <div className="px-6 py-5 max-w-3xl text-sm text-text-secondary leading-relaxed">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex, { strict: false, trust: false }]]}
         components={{
           h1: ({ children }) => <h1 className="text-xl font-heading text-text-primary mt-6 mb-3 first:mt-0">{children}</h1>,
           h2: ({ children }) => <h2 className="text-lg font-heading text-text-primary mt-5 mb-2 first:mt-0 border-b border-border-subtle pb-1">{children}</h2>,
@@ -197,6 +201,7 @@ export default function CodeViewer({
 
     const controller = new AbortController();
     setState({ status: "loading", source: null, error: null });
+    setMdView("rendered");
 
     fetch(fileContentUrl(node.filePath, accessToken), { signal: controller.signal })
       .then(async (res) => {

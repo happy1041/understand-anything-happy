@@ -8,6 +8,7 @@ export const ru = {
     back: "Назад",
     focus: "Фокус",
     unfocus: "Снять фокус",
+    readDocument: "Читать документ",
     openCode: "Открыть код",
     file: "Файл",
     tags: "Теги",

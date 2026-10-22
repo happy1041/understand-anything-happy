@@ -8,6 +8,7 @@ export const ko = {
     back: "뒤로",
     focus: "포커스",
     unfocus: "포커스 해제",
+    readDocument: "문서 읽기",
     openCode: "코드 열기",
     file: "파일",
     tags: "태그",

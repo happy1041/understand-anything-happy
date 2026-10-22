@@ -8,6 +8,7 @@ export const zh = {
     back: "返回",
     focus: "聚焦",
     unfocus: "取消聚焦",
+    readDocument: "阅读文档",
     openCode: "打开代码",
     file: "文件",
     tags: "标签",

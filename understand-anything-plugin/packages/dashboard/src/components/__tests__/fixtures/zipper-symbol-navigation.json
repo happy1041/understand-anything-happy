@@ -1,0 +1,377 @@
+{
+  "version": "1.0.0",
+  "kind": "codebase",
+  "project": {
+    "name": "Zipper · 当前代码架构",
+    "languages": [
+      "Python",
+      "C++",
+      "CUDA",
+      "Bash"
+    ],
+    "frameworks": [
+      "Genesis",
+      "libuipc"
+    ],
+    "description": "服装功能结构：拉链采样研究与三角形附件按扣整衣耦合。共同记录相对几何、储能/耗散和双方反力；Demo独立分类，参数未实测。",
+    "analyzedAt": "2026-10-21T08:05:22.078416+00:00",
+    "gitCommitHash": "fec296e76589c628d25fd34e468e7e64218932c4"
+  },
+  "nodes": [
+    {
+      "id": "file:port/run_zipper_cycle.py",
+      "type": "file",
+      "name": "run_zipper_cycle.py · 开合实验入口",
+      "filePath": "port/run_zipper_cycle.py",
+      "summary": "施加双向PD测试力并保存分项和状态；目标限速不保证实际限速。当前局部支撑修正80mm已复验，200mm仅保留修正前基线。",
+      "tags": [
+        "精选架构",
+        "项目代码"
+      ],
+      "complexity": "complex",
+      "sourceSha256": "43d064168c77f1ff8ec4aace942022ed642a91b20e7ca740299babfe8779d08d",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "file:port/soft_tape_engine_linux.py",
+      "type": "file",
+      "name": "soft_tape_engine_linux.py · Genesis/IPC适配",
+      "filePath": "port/soft_tape_engine_linux.py",
+      "summary": "装配原布料/ABD拉头与等效机构；新增每对链缝的mode8分离记录。链带—拉头实际IPC接触仍关闭，按用户要求不新增显式齿道网格。",
+      "tags": [
+        "精选架构",
+        "项目代码"
+      ],
+      "complexity": "complex",
+      "sourceSha256": "c8bf2736ac897ea4cf8b64b2d490fd32b52a93d1d26ce9990cff560af26e7963",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "class:port/run_zipper_cycle.py:Timeline",
+      "type": "class",
+      "name": "Timeline",
+      "filePath": "port/run_zipper_cycle.py",
+      "lineRange": [
+        30,
+        83
+      ],
+      "summary": "默认200mm、每程2秒五次位置目标及解析速度，起停速度与加速度为零，峰速0.1875m/s；可选原三次轨迹。控制默认1ms采样，物理步可细分，前后保持时长独立配置。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "43d064168c77f1ff8ec4aace942022ed642a91b20e7ca740299babfe8779d08d",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "function:port/run_zipper_cycle.py:force_control",
+      "type": "function",
+      "name": "force_control",
+      "filePath": "port/run_zipper_cycle.py",
+      "lineRange": [
+        245,
+        255
+      ],
+      "summary": "外力=300×位置误差+1.5×速度误差，沿导轨作用并限力；速度超调时可反向制动，保存P/D分项。它不是机构合力或只能承拉的测力。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "43d064168c77f1ff8ec4aace942022ed642a91b20e7ca740299babfe8779d08d",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "function:port/run_zipper_cycle.py:run",
+      "type": "function",
+      "name": "run",
+      "filePath": "port/run_zipper_cycle.py",
+      "lineRange": [
+        258,
+        533
+      ],
+      "summary": "装配原开合机构和固定夹具，分开控制采样与物理子步，保存真实间隙和分项反力。恢复保留采样位置、下一采样前的保持力及原生LuGre历史。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "43d064168c77f1ff8ec4aace942022ed642a91b20e7ca740299babfe8779d08d",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "function:port/run_zipper_cycle.py:aggregate_replay",
+      "type": "function",
+      "name": "aggregate_replay",
+      "filePath": "port/run_zipper_cycle.py",
+      "lineRange": [
+        200,
+        216
+      ],
+      "summary": "将逐步帧与模型合并为states.npz并另存最终checkpoint。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "43d064168c77f1ff8ec4aace942022ed642a91b20e7ca740299babfe8779d08d",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "function:port/run_zipper_cycle.py:restore_native",
+      "type": "function",
+      "name": "restore_native",
+      "filePath": "port/run_zipper_cycle.py",
+      "lineRange": [
+        171,
+        197
+      ],
+      "summary": "恢复原生位置、速度和五项LuGre历史并重存核对；本轮原生字节一致，8步续跑布料差0.963µm，严格10nm回放检查未通过。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "43d064168c77f1ff8ec4aace942022ed642a91b20e7ca740299babfe8779d08d",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "class:port/soft_tape_engine_linux.py:Coupler",
+      "type": "class",
+      "name": "Coupler",
+      "filePath": "port/soft_tape_engine_linux.py",
+      "lineRange": [
+        16,
+        109
+      ],
+      "summary": "建立原布料和固定组合拉头、配对接合、有限宽度通道与LuGre摩擦；可选固定弹性夹具作为独立外部边界条件加入。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "c8bf2736ac897ea4cf8b64b2d490fd32b52a93d1d26ce9990cff560af26e7963",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "function:port/soft_tape_engine_linux.py:Coupler.add_mechanism",
+      "type": "function",
+      "name": "Coupler.add_mechanism",
+      "filePath": "port/soft_tape_engine_linux.py",
+      "lineRange": [
+        79,
+        109
+      ],
+      "summary": "按材料长度给closure和separator加权；mode5负责局部guide，mode7为LuGre。separator在有限局部分离包络内不足间隙时作用，完整闭合区域不被强撑。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "c8bf2736ac897ea4cf8b64b2d490fd32b52a93d1d26ce9990cff560af26e7963",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "class:port/soft_tape_engine_linux.py:Engine",
+      "type": "class",
+      "name": "Engine",
+      "filePath": "port/soft_tape_engine_linux.py",
+      "lineRange": [
+        111,
+        240
+      ],
+      "summary": "验证当前后端身份并提供step/sample及外力接口。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "c8bf2736ac897ea4cf8b64b2d490fd32b52a93d1d26ce9990cff560af26e7963",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    },
+    {
+      "id": "function:port/soft_tape_engine_linux.py:Engine.step",
+      "type": "function",
+      "name": "Engine.step",
+      "filePath": "port/soft_tape_engine_linux.py",
+      "lineRange": [
+        216,
+        240
+      ],
+      "summary": "把拉头和布料外力交给求解器，联合计算下一帧的位置，再检查求解完成和收敛状态。",
+      "tags": [
+        "核心符号"
+      ],
+      "complexity": "moderate",
+      "sourceSha256": "c8bf2736ac897ea4cf8b64b2d490fd32b52a93d1d26ce9990cff560af26e7963",
+      "sourceRevision": "fec296e76589c628d25fd34e468e7e64218932c4"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:port/run_zipper_cycle.py",
+      "target": "file:port/soft_tape_engine_linux.py",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 1,
+      "description": "run中导入Engine并调用step/sample"
+    },
+    {
+      "source": "file:port/run_zipper_cycle.py",
+      "target": "class:port/run_zipper_cycle.py:Timeline",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "file:port/run_zipper_cycle.py",
+      "target": "function:port/run_zipper_cycle.py:force_control",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "file:port/run_zipper_cycle.py",
+      "target": "function:port/run_zipper_cycle.py:run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "file:port/run_zipper_cycle.py",
+      "target": "function:port/run_zipper_cycle.py:aggregate_replay",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "file:port/run_zipper_cycle.py",
+      "target": "function:port/run_zipper_cycle.py:restore_native",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "file:port/soft_tape_engine_linux.py",
+      "target": "class:port/soft_tape_engine_linux.py:Coupler",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "class:port/soft_tape_engine_linux.py:Coupler",
+      "target": "function:port/soft_tape_engine_linux.py:Coupler.add_mechanism",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "file:port/soft_tape_engine_linux.py",
+      "target": "class:port/soft_tape_engine_linux.py:Engine",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "class:port/soft_tape_engine_linux.py:Engine",
+      "target": "function:port/soft_tape_engine_linux.py:Engine.step",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码定义"
+    },
+    {
+      "source": "function:port/run_zipper_cycle.py:run",
+      "target": "function:port/run_zipper_cycle.py:force_control",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码直接调用"
+    },
+    {
+      "source": "function:port/run_zipper_cycle.py:run",
+      "target": "function:port/run_zipper_cycle.py:aggregate_replay",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码直接调用"
+    },
+    {
+      "source": "function:port/run_zipper_cycle.py:run",
+      "target": "function:port/run_zipper_cycle.py:restore_native",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码直接调用"
+    },
+    {
+      "source": "function:port/run_zipper_cycle.py:run",
+      "target": "class:port/soft_tape_engine_linux.py:Engine",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码直接调用"
+    },
+    {
+      "source": "function:port/run_zipper_cycle.py:run",
+      "target": "function:port/soft_tape_engine_linux.py:Engine.step",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码直接调用"
+    },
+    {
+      "source": "class:port/soft_tape_engine_linux.py:Engine",
+      "target": "class:port/soft_tape_engine_linux.py:Coupler",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码直接调用"
+    },
+    {
+      "source": "class:port/soft_tape_engine_linux.py:Coupler",
+      "target": "function:port/soft_tape_engine_linux.py:Coupler.add_mechanism",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 1,
+      "description": "源码直接调用"
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:experiment",
+      "name": "实验编排",
+      "description": "200mm平滑测试驱动、固定控制采样与张开夹具；物理步可细分，实际间隙和反力分别记录。",
+      "nodeIds": [
+        "file:port/run_zipper_cycle.py"
+      ]
+    },
+    {
+      "id": "layer:adapter",
+      "name": "Genesis / IPC 适配",
+      "description": "将布料、刚体和作用力接入隐式动力学，构造拉链连接并检查求解状态。",
+      "nodeIds": [
+        "file:port/soft_tape_engine_linux.py"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "实验编排",
+      "description": "Fixed nested-symbol navigation regression.",
+      "nodeIds": [
+        "file:port/run_zipper_cycle.py"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Genesis / IPC 适配",
+      "description": "Fixed nested-symbol navigation regression.",
+      "nodeIds": [
+        "file:port/soft_tape_engine_linux.py"
+      ]
+    }
+  ]
+}

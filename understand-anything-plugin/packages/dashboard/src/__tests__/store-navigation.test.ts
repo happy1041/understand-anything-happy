@@ -229,3 +229,43 @@ describe("sidebar symbol navigation visibility", () => {
     },
   );
 });
+
+describe("document-first reading", () => {
+  function seed() {
+    const g = graph();
+    g.nodes[0] = { ...g.nodes[0], type: "document", filePath: "gpt-docs/SYSTEM.md" };
+    g.nodes[1] = { ...g.nodes[1], type: "document", filePath: "gpt-docs/FORCES.md" };
+    g.nodes[2].filePath = "src/solver.py";
+    g.tour = [
+      { order: 1, title: "System", description: "Read", nodeIds: ["a1"] },
+      { order: 2, title: "Forces", description: "Read", nodeIds: ["a2"] },
+    ];
+    useDashboardStore.getState().setGraph(g);
+    return useDashboardStore.getState();
+  }
+  it("opens documents on node clicks and returns to source information for code nodes", () => {
+    seed().selectNode("a1");
+    expect(useDashboardStore.getState()).toMatchObject({ codeViewerOpen: true, codeViewerNodeId: "a1" });
+    useDashboardStore.getState().selectNode("b1");
+    expect(useDashboardStore.getState()).toMatchObject({ selectedNodeId: "b1", codeViewerOpen: false });
+    useDashboardStore.getState().goBackNode();
+    expect(useDashboardStore.getState()).toMatchObject({ selectedNodeId: "a1", codeViewerOpen: true, codeViewerNodeId: "a1" });
+    useDashboardStore.getState().selectNode(null);
+    expect(useDashboardStore.getState().codeViewerOpen).toBe(false);
+  });
+  it("opens referenced tour documents, clears stale reading on next/back, and leaves code previews opt-in", () => {
+    seed().startTour();
+    useDashboardStore.getState().navigateToNodeInLayer("a1");
+    expect(useDashboardStore.getState().codeViewerNodeId).toBe("a1");
+    useDashboardStore.getState().nextTourStep();
+    expect(useDashboardStore.getState()).toMatchObject({ codeViewerOpen: false, currentTourStep: 1 });
+    useDashboardStore.getState().navigateToNodeInLayer("a2");
+    expect(useDashboardStore.getState().codeViewerNodeId).toBe("a2");
+    useDashboardStore.getState().prevTourStep();
+    expect(useDashboardStore.getState()).toMatchObject({ codeViewerOpen: false, currentTourStep: 0 });
+    useDashboardStore.getState().navigateToNodeInLayer("b1");
+    expect(useDashboardStore.getState().codeViewerOpen).toBe(false);
+    useDashboardStore.getState().openCodeViewer("b1");
+    expect(useDashboardStore.getState()).toMatchObject({ codeViewerOpen: true, codeViewerNodeId: "b1" });
+  });
+});

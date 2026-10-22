@@ -20,8 +20,10 @@ function Probe(){
  },[g,selected,highlighted,layers,current.nodeToContainer,current.nodes]);
  return null;
 }
-it.skipIf(!process.env.TOUR_PROJECT_GRAPH)("walks the real graph forward/back and exposes Coupler and nested methods using real ELK",async()=>{
- const g=validateGraph(JSON.parse(fs.readFileSync(process.env.TOUR_PROJECT_GRAPH!,"utf8"))).data!;
+async function walkGraph(graphPath: string, nestedSymbols = false) {
+ const result=validateGraph(JSON.parse(fs.readFileSync(graphPath,"utf8")));
+ expect(result.success).toBe(true);
+ const g=result.data!;
  const s=useDashboardStore;s.setState(s.getInitialState(),true);s.getState().setGraph(g);
  let renderer:ReactTestRenderer;await act(async()=>{renderer=create(createElement(Probe));});
  const settle=async()=>{
@@ -40,11 +42,25 @@ it.skipIf(!process.env.TOUR_PROJECT_GRAPH)("walks the real graph forward/back an
   await act(async()=>s.getState().startTour());await settle();
   for(let i=1;i<g.tour.length;i++){await act(async()=>s.getState().nextTourStep());await settle();}
   for(let i=g.tour.length-2;i>=0;i--){await act(async()=>s.getState().prevTourStep());await settle();}
+  if(nestedSymbols) {
   const coupler=g.nodes.find(n=>n.type==="class"&&n.name==="Coupler")!;
   await act(async()=>s.getState().navigateToNodeInLayer(coupler.id));await settle();
   expect(current.nodes.some(n=>n.id===coupler.id)).toBe(true);
   const method=g.nodes.find(n=>n.name==="Coupler.add_mechanism")!;
   await act(async()=>s.getState().navigateToNodeInLayer(method.id));await settle();
   expect(current.nodes.some(n=>n.id===method.id)).toBe(true);
+  } else {
+    for (const node of g.nodes) {
+      await act(async()=>s.getState().navigateToNodeInLayer(node.id));await settle();
+      expect(current.nodes.some(n=>n.id===node.id)).toBe(true);
+      expect(s.getState().codeViewerOpen).toBe(Boolean(node.filePath?.endsWith(".md")));
+    }
+  }
  }finally{await act(async()=>renderer!.unmount());}
-},15000);
+}
+it("keeps nested Coupler navigation working in a fixed regression graph", async () => {
+  await walkGraph(new URL("./fixtures/zipper-symbol-navigation.json", import.meta.url).pathname, true);
+}, 15000);
+it.skipIf(!process.env.TOUR_PROJECT_GRAPH)("walks the current project tour forward/back and opens each node", async () => {
+  await walkGraph(process.env.TOUR_PROJECT_GRAPH!);
+}, 15000);

@@ -424,7 +424,7 @@ export default function NodeInfo() {
               onClick={() => openCodeViewer(node.id)}
               className="shrink-0 text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded border border-accent/30 text-accent hover:text-accent-bright hover:border-accent/60 transition-colors"
             >
-              {t.common.openCode}
+              {/\.md$/i.test(node.filePath) ? t.common.readDocument : t.common.openCode}
             </button>
           </div>
         </div>

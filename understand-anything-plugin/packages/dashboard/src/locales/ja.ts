@@ -8,6 +8,7 @@ export const ja = {
     back: "戻る",
     focus: "フォーカス",
     unfocus: "フォーカス解除",
+    readDocument: "文書を読む",
     openCode: "コードを開く",
     file: "ファイル",
     tags: "タグ",

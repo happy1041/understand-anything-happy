@@ -8,6 +8,7 @@ export const en = {
     back: "Back",
     focus: "Focus",
     unfocus: "Unfocus",
+    readDocument: "Read document",
     openCode: "Open code",
     file: "File",
     tags: "Tags",

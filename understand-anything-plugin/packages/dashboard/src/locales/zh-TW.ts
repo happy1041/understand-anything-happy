@@ -8,6 +8,7 @@ export const zhTW = {
     back: "返回",
     focus: "聚焦",
     unfocus: "取消聚焦",
+    readDocument: "閱讀文件",
     openCode: "開啟程式碼",
     file: "檔案",
     tags: "標籤",

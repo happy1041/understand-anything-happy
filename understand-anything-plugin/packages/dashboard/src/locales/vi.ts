@@ -8,6 +8,7 @@ export const vi = {
     back: "Quay lại",
     focus: "Tập trung",
     unfocus: "Bỏ tập trung",
+    readDocument: "Đọc tài liệu",
     openCode: "Mở mã nguồn",
     file: "Tệp",
     tags: "Thẻ",
