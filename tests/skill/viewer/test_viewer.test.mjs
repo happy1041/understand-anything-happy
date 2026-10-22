@@ -254,12 +254,16 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
     writeFileSync(catalogPath, original);
     const output = readFileSync(join(root, "outputs/demo/data.json"));
     const post = (group, action, extra = {}) => fetch(`${base()}/artifacts/display?token=${viewer.token}`, {
-      method: "POST", body: new URLSearchParams({ group, action }), redirect: "manual", ...extra,
+      method: "POST", headers: { Origin: base() }, body: new URLSearchParams({ group, action }), redirect: "manual", ...extra,
     });
     const html = async (group = "all") => (await fetch(`${base()}/artifacts/?group=${group}&token=${viewer.token}`)).text();
     const nav = text => text.match(/<nav class="versions"[^>]*>(.*?)<\/nav>/s)[1];
     try {
-      expect(await html("two")).toContain("从列表移除");
+      // Ordinary browser form POSTs become Origin: null under no-referrer.
+      // Keep cross-origin referrers private while preserving same-origin POSTs.
+      const page = await fetch(`${base()}/artifacts/?group=two&token=${viewer.token}`);
+      expect(page.headers.get("referrer-policy")).toBe("same-origin");
+      expect(await page.text()).toContain("从列表移除");
       expect((await post("two", "up")).status).toBe(303);
       let shown = nav(await html());
       expect(shown.indexOf("Version two")).toBeLessThan(shown.indexOf("Version one"));
@@ -296,6 +300,7 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
       expect((await post("missing", "hide")).status).toBe(400);
       expect((await post("one", "delete-files")).status).toBe(400);
       expect((await post("one", "hide", { headers: { Origin: "http://untrusted.test" } })).status).toBe(403);
+      expect((await post("one", "hide", { headers: { Origin: "null" } })).status).toBe(403);
       expect((await fetch(`${base()}/artifacts/display`, { method: "POST", headers: { Cookie: `ua_access=${viewer.token}` }, body: new URLSearchParams({ group: "one", action: "hide" }) })).status).toBe(403);
       expect((await fetch(`${base()}/artifacts/display?token=${viewer.token}`)).status).toBe(405);
       expect((await post("one", "hide", { body: new URLSearchParams({ group: "x".repeat(5000), action: "hide" }) })).status).toBe(413);

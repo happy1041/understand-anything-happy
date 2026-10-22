@@ -158,3 +158,9 @@ Start the Understand Anything dashboard to visualize the knowledge graph for the
 - The dashboard auto-opens in the default browser (both the viewer and Vite's `--open`)
 - If port 5173 is already in use, the next available port is picked (both paths)
 - In the fallback, the `GRAPH_DIR` environment variable tells the dev server where to find the knowledge graph
+
+## Demo display controls (local viewer)
+
+The Demo portal stores ordering and hidden groups in the selected data directory's `artifact-display.json`, separately from the `artifacts.json` evidence catalog. Moving, hiding or restoring a group must preserve the catalog and output files. Preserve existing preferences when redeploying the viewer.
+
+When checking these controls, exercise form POSTs with the page's actual same-origin `Origin`, follow the 303 redirect, and reload to verify persistence. Cookie-only, foreign-origin and `Origin: null` writes must remain rejected. A page-wide `Referrer-Policy: no-referrer` can make ordinary browser form POSTs send `Origin: null`; the viewer's HTML pages use `same-origin` to preserve local form submissions without sending referrers to other sites. Diagnose the response policy before changing token/origin validation. After a code fix, confirm the service uses that viewer binary and restart it if required.
