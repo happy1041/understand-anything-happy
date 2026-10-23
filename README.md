@@ -1,5 +1,7 @@
 <h1 align="center">Understand Anything</h1>
 
+> **happy1041 maintained edition:** [Local fixes and setup](LOCAL_CHANGES.md). Based on [Egonex-AI/Understand-Anything](https://github.com/Egonex-AI/Understand-Anything); upstream license and history are preserved.
+
 <p align="center">
   <strong>Turn any codebase, knowledge base, or docs into an interactive knowledge graph you can explore, search, and ask questions about.</strong>
   <br />
