@@ -1,6 +1,8 @@
 import {createElement,useEffect} from "react";
 import {act,create,type ReactTestRenderer} from "react-test-renderer";
 import fs from "node:fs";
+import path from "node:path";
+import { readGraphViews, scopeGraph, type GraphViewConfig } from "../../graphViews";
 import {expect,it} from "vitest";
 import {validateGraph} from "@understand-anything/core/schema";
 import {useDashboardStore} from "../../store";
@@ -20,10 +22,10 @@ function Probe(){
  },[g,selected,highlighted,layers,current.nodeToContainer,current.nodes]);
  return null;
 }
-async function walkGraph(graphPath: string, nestedSymbols = false) {
+async function walkGraph(graphPath: string, nestedSymbols = false, view?: GraphViewConfig) {
  const result=validateGraph(JSON.parse(fs.readFileSync(graphPath,"utf8")));
  expect(result.success).toBe(true);
- const g=result.data!;
+ const g=scopeGraph(result.data!, view);
  const s=useDashboardStore;s.setState(s.getInitialState(),true);s.getState().setGraph(g);
  let renderer:ReactTestRenderer;await act(async()=>{renderer=create(createElement(Probe));});
  const settle=async()=>{
@@ -62,5 +64,10 @@ it("keeps nested Coupler navigation working in a fixed regression graph", async 
   await walkGraph(new URL("./fixtures/zipper-symbol-navigation.json", import.meta.url).pathname, true);
 }, 15000);
 it.skipIf(!process.env.TOUR_PROJECT_GRAPH)("walks the current project tour forward/back and opens each node", async () => {
-  await walkGraph(process.env.TOUR_PROJECT_GRAPH!);
+  const graphPath = process.env.TOUR_PROJECT_GRAPH!;
+  const configPath = path.join(path.dirname(graphPath), "config.json");
+  const graph = validateGraph(JSON.parse(fs.readFileSync(graphPath, "utf8"))).data!;
+  const views = readGraphViews(fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : {}, graph);
+  if (!views.length) await walkGraph(graphPath);
+  for (const view of views) await walkGraph(graphPath, false, view);
 }, 15000);

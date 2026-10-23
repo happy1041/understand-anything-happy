@@ -185,7 +185,7 @@ interface DashboardStore {
   showFunctionsInClassView: boolean;
   toggleShowFunctionsInClassView: () => void;
 
-  setGraph: (graph: KnowledgeGraph) => void;
+  setGraph: (graph: KnowledgeGraph, resetView?: boolean) => void;
   selectNode: (nodeId: string | null) => void;
   navigateToNode: (nodeId: string) => void;
   navigateToNodeInLayer: (nodeId: string) => void;
@@ -417,15 +417,25 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
       pendingFocusContainer: null,
     })),
 
-  setGraph: (graph) => {
+  setGraph: (graph, resetView = false) => {
     const searchEngine = new SearchEngine(graph.nodes);
-    const query = get().searchQuery;
+    const query = resetView ? "" : get().searchQuery;
     const searchResults = query.trim() ? searchEngine.search(query) : [];
     const { viewMode, domainGraph, activeDomainId } = get();
     // Preserve domain view if a domain graph is already loaded
-    const keepDomainView = viewMode === "domain" && domainGraph !== null;
+    const keepDomainView = !resetView && viewMode === "domain" && domainGraph !== null;
     const { nodesById, nodeIdToLayerId, nodeIdToLayerIds } = buildGraphIndexes(graph);
     set({
+      ...(resetView ? {
+        searchQuery: "", codeViewerOpen: false, codeViewerNodeId: null, codeViewerExpanded: false,
+        tourActive: false, currentTourStep: 0, tourHighlightedNodeIds: [], tourFitPending: false,
+        filters: { ...DEFAULT_FILTERS, layerIds: new Set<string>() },
+        nodeTypeFilters: { code: true, config: true, docs: true, infra: true, data: true, domain: true, knowledge: true },
+        filterPanelOpen: false, exportMenuOpen: false, pathFinderOpen: false,
+        detailLevel: "file" as const, showFunctionsInClassView: false,
+        diffMode: false, changedNodeIds: new Set<string>(), affectedNodeIds: new Set<string>(),
+        reactFlowInstance: null, domainGraph: null, isKnowledgeGraph: graph.kind === "knowledge",
+      } : {}),
       graph,
       nodesById,
       nodeIdToLayerId,
@@ -437,7 +447,7 @@ export const useDashboardStore = create<DashboardStore>()((set, get) => ({
       selectedNodeId: null,
       focusNodeId: null,
       nodeHistory: [],
-      viewMode: keepDomainView ? "domain" as const : "structural" as const,
+      viewMode: keepDomainView ? "domain" as const : resetView && graph.kind === "knowledge" ? "knowledge" as const : "structural" as const,
       activeDomainId: keepDomainView ? activeDomainId : null,
       containerLayoutCache: new Map(),
       expandedContainers: new Set(),

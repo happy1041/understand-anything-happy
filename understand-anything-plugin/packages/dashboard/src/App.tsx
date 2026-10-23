@@ -1,6 +1,9 @@
 import { useEffect, useState, useMemo, useCallback, lazy, Suspense } from "react";
 import { validateGraph } from "@understand-anything/core/schema";
 import type { GraphIssue } from "@understand-anything/core/schema";
+import type { KnowledgeGraph } from "@understand-anything/core/types";
+import { readGraphViews, resolveGraphView, scopeGraph, type GraphViewConfig } from "./graphViews";
+import GraphViewTabs, { type GraphViewTabsProps } from "./components/GraphViewTabs";
 import { useDashboardStore } from "./store";
 import GraphView from "./components/GraphView";
 import DomainGraphView from "./components/DomainGraphView";
@@ -126,16 +129,44 @@ function App() {
   return <Dashboard accessToken={accessToken} />;
 }
 
-function Dashboard({ accessToken }: { accessToken: string }) {
+export function Dashboard({ accessToken }: { accessToken: string }) {
   const setGraph = useDashboardStore((s) => s.setGraph);
   const setDomainGraph = useDashboardStore((s) => s.setDomainGraph);
   const setDiffOverlay = useDashboardStore((s) => s.setDiffOverlay);
+  const [diffOverlay, setRawDiffOverlay] = useState<{ changedNodeIds: string[]; affectedNodeIds: string[] } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [graphIssues, setGraphIssues] = useState<GraphIssue[]>([]);
   const [graphFreshness, setGraphFreshness] =
     useState<DashboardFreshnessReport | null>(null);
   const [metaTheme, setMetaTheme] = useState<ThemeConfig | null>(null);
   const [outputLanguage, setOutputLanguage] = useState<string | undefined>();
+  const [graphBundle, setGraphBundle] = useState<{ graph: KnowledgeGraph; views: GraphViewConfig[]; defaultView?: string } | null>(null);
+  const [activeGraphView, setActiveGraphView] = useState<string | null>(null);
+  // A per-session dismissal survives switching the keyed graph contents.
+  const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding);
+  const dismissOnboarding = useCallback((remember: boolean) => {
+    if (remember) window.localStorage.setItem(ONBOARDING_DISMISSED_KEY, "1");
+    setShowOnboarding(false);
+  }, []);
+
+  const changeGraphView = useCallback((id: string | null, updateUrl = true) => {
+    if (!graphBundle?.views.length) return;
+    const view = resolveGraphView(graphBundle.views, id, graphBundle.defaultView)!;
+    if (view.id === activeGraphView) return;
+    setGraph(scopeGraph(graphBundle.graph, view), true);
+    setActiveGraphView(view.id);
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", view.id);
+      window.history.pushState(null, "", url.pathname + url.search + url.hash);
+    }
+  }, [graphBundle, activeGraphView, setGraph]);
+
+  useEffect(() => {
+    const onPopState = () => changeGraphView(new URLSearchParams(window.location.search).get("view"), false);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [changeGraphView]);
 
   useEffect(() => {
     fetch(dataUrl("meta.json", accessToken))
@@ -144,17 +175,18 @@ function Dashboard({ accessToken }: { accessToken: string }) {
         if (meta?.theme) setMetaTheme(meta.theme);
       })
       .catch(() => {});
-    fetch(dataUrl("config.json", accessToken))
-      .then((r) => (r.ok ? r.json() : null))
-      .then((config) => {
-        if (config?.outputLanguage) setOutputLanguage(config.outputLanguage);
-      })
-      .catch(() => {});
-  }, []);
+  }, [accessToken]);
 
   useEffect(() => {
-    fetch(dataUrl("knowledge-graph.json", accessToken))
-      .then(async (res) => {
+    let cancelled = false;
+    // Wait for optional view config too: never index or render the mixed master graph first.
+    Promise.all([
+      fetch(dataUrl("config.json", accessToken)).then(r => {
+        if (r.status === 404) return null;
+        if (!r.ok) throw new Error(`Failed to load graph configuration: HTTP ${r.status}`);
+        return r.json();
+      }),
+      fetch(dataUrl("knowledge-graph.json", accessToken)).then(async (res) => {
         // Guard res.ok before parsing (matching the meta.json/config.json/
         // diff-overlay.json/domain-graph.json fetches in this file). Without
         // this, a serving/config failure returns a 404 JSON error body that
@@ -173,11 +205,19 @@ function Dashboard({ accessToken }: { accessToken: string }) {
           throw new Error(detail);
         }
         return res.json();
-      })
-      .then((data: unknown) => {
+      }),
+    ])
+      .then(([config, data]: [Record<string, unknown> | null, unknown]) => {
+        if (cancelled) return;
+        if (typeof config?.outputLanguage === "string") setOutputLanguage(config.outputLanguage);
         const result = validateGraph(data);
         if (result.success && result.data) {
-          setGraph(result.data);
+          const views = readGraphViews(config, result.data);
+          const defaultView = typeof config?.defaultGraphView === "string" ? config.defaultGraphView : undefined;
+          const view = resolveGraphView(views, new URLSearchParams(window.location.search).get("view"), defaultView);
+          setGraph(scopeGraph(result.data, view), Boolean(view));
+          setGraphBundle({ graph: result.data, views, defaultView });
+          setActiveGraphView(view?.id ?? null);
           setGraphIssues(result.issues);
           if ((data as Record<string, unknown>).kind === "knowledge") {
             useDashboardStore.getState().setViewMode("knowledge");
@@ -199,10 +239,12 @@ function Dashboard({ accessToken }: { accessToken: string }) {
         }
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error("Failed to load knowledge graph:", err);
         setLoadError(`Failed to load knowledge graph: ${err instanceof Error ? err.message : String(err)}`);
       });
-  }, [setGraph]);
+    return () => { cancelled = true; };
+  }, [setGraph, accessToken]);
 
   useEffect(() => {
     if (
@@ -243,14 +285,24 @@ function Dashboard({ accessToken }: { accessToken: string }) {
         ) {
           const d = data as { changedNodeIds: string[]; affectedNodeIds: string[] };
           if (d.changedNodeIds.length > 0) {
-            setDiffOverlay(d.changedNodeIds, d.affectedNodeIds);
+            setRawDiffOverlay(d);
           }
         }
       })
       .catch(() => {});
-  }, [setDiffOverlay]);
+  }, [accessToken]);
 
   useEffect(() => {
+    if (!graphBundle || !diffOverlay) return;
+    const ids = useDashboardStore.getState().nodesById;
+    const changed = diffOverlay.changedNodeIds.filter(id => ids.has(id));
+    const affected = diffOverlay.affectedNodeIds.filter(id => ids.has(id));
+    if (changed.length) setDiffOverlay(changed, affected);
+    else useDashboardStore.getState().clearDiffOverlay();
+  }, [graphBundle, activeGraphView, diffOverlay, setDiffOverlay]);
+
+  useEffect(() => {
+    if (!graphBundle || graphBundle.views.length) return;
     fetch(dataUrl("domain-graph.json", accessToken))
       .then((res) => {
         if (!res.ok) return null;
@@ -266,17 +318,23 @@ function Dashboard({ accessToken }: { accessToken: string }) {
         }
       })
       .catch(() => {});
-  }, [setDomainGraph]);
+  }, [setDomainGraph, graphBundle, accessToken]);
 
   return (
     <I18nProvider language={outputLanguage ?? "en"}>
       <ThemeProvider metaTheme={metaTheme}>
-        <DashboardContent
+        {!graphBundle && !loadError ? <div role="status" className="h-screen flex items-center justify-center bg-root text-text-primary">Loading architecture…</div> : <DashboardContent
+          key={activeGraphView ?? "default"}
+          showOnboarding={showOnboarding}
+          dismissOnboarding={dismissOnboarding}
+          graphViews={graphBundle?.views ?? []}
+          activeGraphView={activeGraphView}
+          onGraphViewChange={id => { if (id !== activeGraphView) changeGraphView(id); }}
           accessToken={accessToken}
           loadError={loadError}
           graphIssues={graphIssues}
           graphFreshness={graphFreshness}
-        />
+        />}
       </ThemeProvider>
     </I18nProvider>
   );
@@ -287,7 +345,14 @@ function DashboardContent({
   loadError,
   graphIssues,
   graphFreshness,
-}: {
+  graphViews,
+  activeGraphView,
+  onGraphViewChange,
+  showOnboarding,
+  dismissOnboarding,
+}: GraphViewTabsProps & {
+  showOnboarding: boolean;
+  dismissOnboarding: (remember: boolean) => void;
   accessToken: string;
   loadError: string | null;
   graphIssues: GraphIssue[];
@@ -311,13 +376,6 @@ function DashboardContent({
   const toggleShowFunctionsInClassView = useDashboardStore((s) => s.toggleShowFunctionsInClassView);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("info");
-  const [showOnboarding, setShowOnboarding] = useState(shouldShowOnboarding);
-  const dismissOnboarding = useCallback((remember: boolean) => {
-    if (remember && typeof window !== "undefined") {
-      window.localStorage.setItem(ONBOARDING_DISMISSED_KEY, "1");
-    }
-    setShowOnboarding(false);
-  }, []);
   const viewMode = useDashboardStore((s) => s.viewMode);
   const setViewMode = useDashboardStore((s) => s.setViewMode);
   const isKnowledgeGraph = useDashboardStore((s) => s.isKnowledgeGraph);
@@ -502,6 +560,9 @@ function DashboardContent({
         allIssues={allIssues}
         graphFreshness={graphFreshness}
         shortcuts={shortcuts}
+        graphViews={graphViews}
+        activeGraphView={activeGraphView}
+        onGraphViewChange={onGraphViewChange}
       />
     );
   }
@@ -695,6 +756,8 @@ function DashboardContent({
         </div>
       </header>
 
+      <GraphViewTabs graphViews={graphViews} activeGraphView={activeGraphView} onGraphViewChange={onGraphViewChange} />
+
       {/* Search */}
       <SearchBar />
 
@@ -714,7 +777,7 @@ function DashboardContent({
       )}
 
       {/* Main content: Graph + Sidebar */}
-      <div className="flex-1 flex min-h-0 relative">
+      <div id="graph-view-panel" role={activeGraphView ? "tabpanel" : undefined} aria-labelledby={activeGraphView ? `view-tab-${activeGraphView}` : undefined} className="flex-1 flex min-h-0 relative">
         {/* Graph area */}
         <div className="flex-1 min-w-0 min-h-0 relative">
           {viewMode === "knowledge" ? (

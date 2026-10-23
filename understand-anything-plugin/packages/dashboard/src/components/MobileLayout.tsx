@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import GraphViewTabs, { type GraphViewTabsProps } from "./GraphViewTabs";
 import type { GraphIssue } from "@understand-anything/core/schema";
 import { useDashboardStore } from "../store";
 import { useI18n } from "../contexts/I18nContext";
@@ -21,7 +22,7 @@ const LearnPanel = lazy(() => import("./LearnPanel"));
 const PathFinderModal = lazy(() => import("./PathFinderModal"));
 const KeyboardShortcutsHelp = lazy(() => import("./KeyboardShortcutsHelp"));
 
-interface Props {
+interface Props extends GraphViewTabsProps {
   accessToken: string;
   showKeyboardHelp: boolean;
   setShowKeyboardHelp: (value: boolean) => void;
@@ -39,6 +40,9 @@ export default function MobileLayout({
   allIssues,
   graphFreshness,
   shortcuts,
+  graphViews,
+  activeGraphView,
+  onGraphViewChange,
 }: Props) {
   const graph = useDashboardStore((s) => s.graph);
   const selectedNodeId = useDashboardStore((s) => s.selectedNodeId);
@@ -143,6 +147,8 @@ export default function MobileLayout({
         </button>
       </header>
 
+      <GraphViewTabs graphViews={graphViews} activeGraphView={activeGraphView} onGraphViewChange={onGraphViewChange} />
+
       {/* Search (collapsible) */}
       {searchOpen && <SearchBar />}
 
@@ -163,7 +169,7 @@ export default function MobileLayout({
           Inactive panes are kept in the layout (not display:none) so that
           ReactFlow keeps real dimensions and pinch/pan don't collapse on
           tab switch. */}
-      <div className="flex-1 min-h-0 relative">
+      <div id="graph-view-panel" role={activeGraphView ? "tabpanel" : undefined} aria-labelledby={activeGraphView ? `view-tab-${activeGraphView}` : undefined} className="flex-1 min-h-0 relative">
         <div
           className={`absolute inset-0 ${
             activeTab === "graph" ? "" : "invisible pointer-events-none"
