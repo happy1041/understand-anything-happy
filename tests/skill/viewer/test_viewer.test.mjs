@@ -3,7 +3,7 @@
 // gate, graph sanitisation, file-content allowlist, and .ua/legacy resolution.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,12 +66,12 @@ function setupProject(dataDirName) {
 }
 
 /** Start the viewer and wait for the printed URL. Returns { proc, url, token, port }. */
-function startViewer(projectRoot) {
+function startViewer(projectRoot, env = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const proc = spawn(
       process.execPath,
       [VIEWER_BIN, projectRoot, "--no-open", "--port", "0"],
-      { env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"] },
+      { env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] },
     );
     let out = "";
     const timer = setTimeout(() => {
@@ -193,7 +193,7 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
     const result = await fetch(`${base()}/outputs/demo/data.json`,{headers:{cookie}});
     expect(await result.json()).toEqual({ok:true});
     expect((await fetch(`${base()}/outputs/demo/?token=${viewer.token}`)).status).toBe(200);
-    expect(await (await fetch(`${base()}/outputs/demo/?token=${viewer.token}`)).text()).toContain("hero.mp4?token=");
+    expect(await (await fetch(`${base()}/outputs/demo/?token=${viewer.token}`)).text()).toContain("path=outputs%2Fdemo%2Fhero.mp4");
     const video = await fetch(`${base()}/outputs/demo/hero.mp4?token=${viewer.token}`,{headers:{Range:"bytes=2-5"}});
     expect(video.status).toBe(206); expect(video.headers.get("content-type")).toBe("video/mp4");
     expect(video.headers.get("content-range")).toBe("bytes 2-5/10"); expect(await video.text()).toBe("2345");
@@ -323,4 +323,62 @@ describe.skipIf(!existsSync(VIEWER_DIST))("understand-anything-viewer", () => {
       rmSync(legacyRoot, { recursive: true, force: true });
     }
   }, 15_000);
+});
+
+describe.skipIf(!existsSync(VIEWER_DIST) || process.platform === "win32")("Demo VS Code dispatch", () => {
+  it("opens exact project file paths through POST and preserves directory/media browsing", async () => {
+    const root = setupProject(".ua");
+    const bin = join(root, "mock-bin");
+    const capture = join(root, "invocation.json");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "code"), `#!${process.execPath}
+import fs from 'node:fs';
+fs.writeFileSync(process.env.UA_TEST_CAPTURE, JSON.stringify(process.argv.slice(2)));
+process.exit(fs.existsSync(process.env.UA_TEST_CAPTURE + '.fail') ? 9 : 0);
+`);
+    chmodSync(join(bin, "code"), 0o755);
+    const relative = "outputs/羽绒服/demo $quote' & video.mp4";
+    mkdirSync(join(root, "outputs", "羽绒服"), { recursive: true });
+    writeFileSync(join(root, relative), "video");
+    symlinkSync(join(root, "secret.txt"), join(root, "outputs", "escape.txt"));
+    writeFileSync(join(root, ".ua", "artifacts.json"), JSON.stringify({
+      version: 1, groups: [{ id: "demo", name: "Demo" }],
+      items: [{ group: "demo", name: "Video", filePath: relative, artifactType: "video" }],
+    }));
+    let viewer;
+    try {
+      viewer = await startViewer(root, { PATH: bin, UA_TEST_CAPTURE: capture });
+      const base = `http://127.0.0.1:${viewer.port}`;
+      const endpoint = `${base}/artifacts/open-file?token=${viewer.token}&path=${encodeURIComponent(relative)}`;
+      const post = (url = endpoint, headers = { Origin: base }) => fetch(url, {
+        method: "POST", headers, redirect: "manual",
+      });
+      const html = await (await fetch(`${base}/artifacts/?token=${viewer.token}`)).text();
+      expect(html).toContain('/artifacts/open-file?');
+      expect(html).toContain('<video controls');
+      expect(html).toContain('/outputs/');
+      expect((await fetch(endpoint)).status).toBe(405);
+      for (const Origin of ["http://foreign.invalid", "null", undefined]) {
+        expect((await post(endpoint, Origin ? { Origin } : {})).status).toBe(403);
+      }
+      expect((await post(endpoint.replace(viewer.token, "wrong"))).status).toBe(403);
+      expect((await post(`${base}/artifacts/open-file?path=${encodeURIComponent(relative)}`,
+        { Origin: base, Cookie: `ua_access=${viewer.token}` })).status).toBe(403);
+      for (const relativePath of ["outputs", "../secret.txt", "outputs/escape.txt", ".ua/knowledge-graph.json"]) {
+        expect((await post(`${base}/artifacts/open-file?token=${viewer.token}&path=${encodeURIComponent(relativePath)}`)).status).toBe(404);
+      }
+      expect(existsSync(capture)).toBe(false);
+      const opened = await post();
+      expect(opened.status).toBe(303);
+      expect(opened.headers.get("location")).toContain("/artifacts/?token=");
+      expect(JSON.parse(readFileSync(capture, "utf8"))).toEqual(["--reuse-window", "--", join(root, relative)]);
+      writeFileSync(capture + ".fail", "");
+      expect((await post()).status).toBe(500);
+      rmSync(join(bin, "code"));
+      expect((await post()).status).toBe(500);
+    } finally {
+      viewer?.proc.kill();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

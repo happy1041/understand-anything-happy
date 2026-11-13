@@ -10,6 +10,7 @@ This repository publishes the locally maintained Understand Anything package use
 - Authenticated project artifact browsing and a separate versioned Demo portal; hide, restore and reorder entries without deleting outputs.
 - Artifact-only browsing when no knowledge graph is needed.
 - Configurable independent architecture tabs, each with scoped nodes, search and tours; switching resets obsolete navigation state.
+- A portable dashboard launcher and Demo file buttons that invoke the local VS Code CLI through authenticated same-origin POSTs.
 
 ## Build from source
 
@@ -19,6 +20,16 @@ cd understand-anything-happy
 corepack pnpm install --frozen-lockfile
 corepack pnpm build
 ```
+
+## Open a project dashboard
+
+```bash
+node understand-anything-plugin/skills/understand-dashboard/scripts/open-dashboard.mjs /path/to/project
+```
+
+Add `--artifacts-only` for a Demo catalog, `--no-open` to copy the printed access URL, or `--build` after changing dashboard source. The launcher builds missing viewer assets using pnpm. It runs in the foreground until Ctrl+C.
+
+Demo file titles and directory-browser files open through `code --reuse-window -- <file>` on the viewer host. Ensure `code` is on that process's PATH. Directories remain browsable and inline media use HTTP. The dashboard skill maintains the launch and file-opening rules.
 
 Use the upstream installation instructions below in README for your agent environment, substituting this repository URL when installing this edition. Build outputs and dependencies are generated locally, not committed. Project graphs, assets, experiment outputs and access credentials are not bundled.
 

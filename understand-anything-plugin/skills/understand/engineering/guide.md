@@ -29,6 +29,7 @@
 按需阅读：
 - 文档树、理论/工程说明、状态与待办：`references/workspace.md`。
 - demo、代码、文档等产物的命名、分层与证据：`references/artifacts.md`。
+- Dashboard 启动与 Demo 文件通过本机 VS Code 打开的约定见 `../../understand-dashboard/SKILL.md`，使用其中的启动脚本与共享 viewer 实现。
 - 数百个历史输出的安全整理：`references/legacy-cleanup.md`。
 - 模板位于 `assets/`；仅拷贝真正需要的模板，不复制所有占位文件进项目。
 - 无现成索引工具时，可用 `scripts/catalog.py` 生成只读盘点和精选入口；它不评估结果质量，也不运行仿真。

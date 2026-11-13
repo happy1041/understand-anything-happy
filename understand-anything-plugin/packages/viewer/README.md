@@ -14,6 +14,10 @@ The project directory (default: current directory) must contain a data directory
 
 Options: `--port <n>` (default 5173, auto-increments if taken), `--no-open`.
 
+This maintained edition provides a source-install launcher at `skills/understand-dashboard/scripts/open-dashboard.mjs`, relative to the plugin root. Run it with a project directory and optional `--build` to refresh embedded assets. It builds missing assets with pnpm and forwards viewer options.
+
+On the Demo page and artifact directory pages, file buttons submit authenticated same-origin POSTs to the local viewer, which runs `code --reuse-window -- <absolute-file-path>`. The `code` CLI opens the file in VS Code on the viewer host. Directories use dashboard navigation and inline media retain HTTP playback. Opening a video uses the installed VS Code preview support.
+
 Everything is served read-only from local disk, bound to `127.0.0.1`, and gated behind a one-time access token — no data leaves your machine.
 
 ## Building the tarball (maintainers)

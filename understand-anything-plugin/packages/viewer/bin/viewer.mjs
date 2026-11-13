@@ -313,6 +313,18 @@ function serveStatic(res, pathname) {
 // Read-only project artifacts share the graph's token and process.
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const artifactHref = (p) => "/" + p.split("/").map(encodeURIComponent).join("/") + "?token=" + encodeURIComponent(ACCESS_TOKEN);
+function artifactPathAllowed(relative) {
+  const roots = ["outputs", "assets", "gpt-docs", "README.md", "AGENTS.md"];
+  try {
+    const config = JSON.parse(fs.readFileSync(path.join(graphDir, "config.json"), "utf-8"));
+    for (const root of config.artifactRoots ?? []) {
+      if (typeof root !== "string" || !root || root.includes("\\") || root.includes("\0") ||
+          root.split("/").some(p => !p || p === ".." || p.startsWith("."))) continue;
+      roots.push(root);
+    }
+  } catch { /* Default single-project artifact roots remain available. */ }
+  return roots.some(root => relative === root || relative.startsWith(root + "/")) || graphFilePathSet().has(relative);
+}
 function projectPath(pathname) {
   let decoded;
   try { decoded = decodeURIComponent(pathname); } catch { return null; }
@@ -320,13 +332,13 @@ function projectPath(pathname) {
   const relative = decoded.replace(/^\/+/, "");
   if (!relative || relative.includes("\0") || relative.includes("\\") || relative.split("/").some(p => p === ".." || p.startsWith("."))) return null;
   const normalized = path.posix.normalize(relative).replace(/\/$/, "");
-  if (!/^(outputs|assets|gpt-docs)(\/|$)/.test(normalized) && !["README.md", "AGENTS.md"].includes(normalized) && !graphFilePathSet().has(normalized)) return null;
+  if (!artifactPathAllowed(normalized)) return null;
   const absolute = path.resolve(projectRoot, normalized);
   try {
     const real = fs.realpathSync(absolute);
     if (!real.startsWith(fs.realpathSync(projectRoot) + path.sep)) return null;
     const target = path.relative(fs.realpathSync(projectRoot), real).split(path.sep).join("/");
-    if (!/^(outputs|assets|gpt-docs)(\/|$)/.test(target) && !["README.md", "AGENTS.md"].includes(target) && !graphFilePathSet().has(target)) return null;
+    if (!artifactPathAllowed(target)) return null;
     // Don't expose hidden targets through symlinks.
     if (path.relative(fs.realpathSync(projectRoot), real).split(path.sep).some(p => p.startsWith("."))) return null;
     return { absolute, relative: normalized, stat: fs.statSync(real) };
@@ -341,6 +353,55 @@ function htmlPage(res, title, body) {
   res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'");
   res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>body{font:16px/1.6 system-ui;background:#111827;color:#e5e7eb;max-width:1200px;margin:32px auto;padding:0 24px}a{color:#93c5fd;overflow-wrap:anywhere}h1{font-size:26px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}article{background:#1f2937;padding:20px;border-radius:12px}video,img{max-width:100%;max-height:360px}small{color:#b5bfce}.versions{display:flex;gap:10px;flex-wrap:wrap;margin:24px 0}.versions a,.badge{border:1px solid #475569;border-radius:8px;padding:6px 12px;text-decoration:none}.versions a[aria-current="page"]{background:#334155;border-color:#93c5fd;color:white}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px}.version{margin:32px 0 48px}.version h2{margin-bottom:4px}article h3{margin-top:8px}article .links{display:flex;flex-wrap:wrap;gap:12px}.badge{display:inline-block;font-size:12px;padding:2px 8px}button{font:inherit;background:#1f2937;color:#e5e7eb;border:1px solid #64748b;border-radius:6px;padding:5px 12px;cursor:pointer}button:disabled{opacity:.4;cursor:default}.manage{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.manage form{display:inline}.removed li{margin:8px 0}details{margin-top:14px}summary{cursor:pointer}img,video{display:block;width:100%;object-fit:contain;border-radius:6px}</style><nav>${artifactsOnly ? "" : `<a href="/?token=${encodeURIComponent(ACCESS_TOKEN)}">图谱</a> · `}<a href="/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}">Demo / 产物</a></nav><h1>${escapeHtml(title)}</h1>${body}</html>`);
 }
+function fileClickLink(label, filePath) {
+  const item = projectPath("/" + filePath);
+  if (item?.stat.isFile()) {
+    const action = `/artifacts/open-file?token=${encodeURIComponent(ACCESS_TOKEN)}&path=${encodeURIComponent(filePath)}`;
+    return `<form method="post" action="${escapeHtml(action)}" style="display:inline"><button type="submit" style="color:#93c5fd;text-align:left;overflow-wrap:anywhere">${escapeHtml(label)}</button></form>`;
+  }
+  return `<a href="${escapeHtml(artifactHref(filePath))}">${escapeHtml(label)}</a>`;
+}
+
+function openProjectFile(req, res, url) {
+  if (req.method !== "POST") {
+    res.writeHead(405, { Allow: "POST" });
+    res.end();
+    return;
+  }
+  if (url.searchParams.get("token") !== ACCESS_TOKEN ||
+      req.headers.origin !== `http://${req.headers.host}`) {
+    sendJson(res, 403, { error: "Invalid origin or token" });
+    return;
+  }
+  const item = projectPath("/" + (url.searchParams.get("path") ?? ""));
+  if (!item?.stat.isFile()) {
+    sendJson(res, 404, { error: "Project file not found" });
+    return;
+  }
+  const opener = spawn("code", ["--reuse-window", "--", item.absolute], {
+    stdio: "ignore",
+  });
+  opener.once("error", () => {
+    sendJson(res, 500, { error: "Could not start VS Code. Ensure the code command is on PATH." });
+  });
+  opener.once("exit", code => {
+    if (code !== 0) {
+      sendJson(res, 500, { error: "VS Code command failed", exitCode: code });
+      return;
+    }
+    let back = `/artifacts/?token=${encodeURIComponent(ACCESS_TOKEN)}`;
+    try {
+      const ref = new URL(req.headers.referer);
+      if (ref.origin === `http://${req.headers.host}` &&
+          (ref.pathname.startsWith("/artifacts/") || projectPath(ref.pathname))) {
+        back = ref.pathname + ref.search;
+      }
+    } catch { /* Direct requests return to the artifact catalog. */ }
+    res.writeHead(303, { Location: back });
+    res.end();
+  });
+}
+
 function readArtifactCatalog() {
   // Only preserved output groups are switched. Code, graph and runtime stay current.
   const catalogPath = path.join(graphDir, "artifacts.json");
@@ -442,7 +503,7 @@ function serveArtifacts(res, url) {
   const controls = selectedIndex < 0 ? "" : `<div class="manage" aria-label="管理选定版本"><span>${escapeHtml(groups[selectedIndex].name)}</span>${displayForm(selected, "up", "前移", selectedIndex === 0)}${displayForm(selected, "down", "后移", selectedIndex === groups.length - 1)}${displayForm(selected, "hide", "从列表移除")}</div><small>仅调整展示入口，原始文件保留。</small>`;
   const removed = prefs.hidden.length ? `<details class="removed"><summary>已移除版本（${prefs.hidden.length}）</summary><ul>${prefs.hidden.map(id => `<li class="manage"><span>${escapeHtml(catalog.groups.find(g => g.id === id).name)}</span>${displayForm(id, "restore", "恢复")}</li>`).join("")}</ul></details>` : "";
   const link = (label, filePath) => projectPath("/" + filePath)
-    ? `<a href="${escapeHtml(artifactHref(filePath))}">${escapeHtml(label)}</a>`
+    ? fileClickLink(label, filePath)
     : `<small>${escapeHtml(label)}：文件不可用</small>`;
   const card = n => {
     const exists = projectPath("/" + n.filePath);
@@ -463,7 +524,7 @@ function serveArtifacts(res, url) {
 function serveProject(req, res, item, url) {
   if (item.stat.isDirectory()) {
     const entries = fs.readdirSync(item.absolute, {withFileTypes:true}).filter(e => !e.name.startsWith(".")).sort((a,b) => a.name.localeCompare(b.name));
-    htmlPage(res, item.relative + "/", `<ul>${entries.filter(e => projectPath("/" + item.relative + "/" + e.name)).map(e => `<li><a href="${escapeHtml(artifactHref(item.relative + "/" + e.name + (e.isDirectory() ? "/" : "")))}">${escapeHtml(e.name)}${e.isDirectory() ? "/" : ""}</a></li>`).join("")}</ul>`);
+    htmlPage(res, item.relative + "/", `<ul>${entries.filter(e => projectPath("/" + item.relative + "/" + e.name)).map(e => `<li>${fileClickLink(e.name + (e.isDirectory() ? "/" : ""), item.relative + "/" + e.name + (e.isDirectory() ? "/" : ""))}</li>`).join("")}</ul>`);
     return;
   }
   if (path.extname(item.relative).toLowerCase() === ".md") {
@@ -522,13 +583,18 @@ const server = createServer((req, res) => {
     res.writeHead(302, {Location: "/artifacts/" + (authenticated ? "?token=" + encodeURIComponent(ACCESS_TOKEN) : "")}); res.end(); return;
   }
   const item = projectPath(pathname);
-  const artifactRequest = pathname === "/artifacts/" || pathname === "/artifacts" || pathname === "/artifact-content.json" || pathname === "/artifacts/display" || item;
+  const artifactRequest = pathname === "/artifacts/open-file" || pathname === "/artifacts/" || pathname === "/artifacts" || pathname === "/artifact-content.json" || pathname === "/artifacts/display" || item;
   if (!PROTECTED.has(pathname) && !artifactRequest) {
     serveStatic(res, pathname);
     return;
   }
   if (!authenticated) {
     sendJson(res, 403, { error: "Forbidden: missing or invalid token" });
+    return;
+  }
+  if (pathname === "/artifacts/open-file") {
+    res.setHeader("Cache-Control", "no-store");
+    openProjectFile(req, res, url);
     return;
   }
   if (pathname === "/artifacts/display") {

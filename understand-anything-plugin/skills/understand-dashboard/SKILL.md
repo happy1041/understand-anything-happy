@@ -1,167 +1,51 @@
 ---
 name: understand-dashboard
-description: Launch the interactive web dashboard to visualize a codebase's knowledge graph
+description: Launch the local knowledge-graph and Demo dashboard, with artifact files opening in VS Code through the local viewer service.
 metadata:
   argument-hint: "[project-path]"
 ---
 
-## Local engineering integration
-
-For engineering research, simulation, implementation, project explanation or evidence maintenance, also read [../understand/engineering/guide.md](../understand/engineering/guide.md). This is a supplement to the workflow below. **If the engineering supplement conflicts with Understand Anything, follow Understand Anything.** Preserve the upstream commands, graph schema and analysis/update stages. Use project evidence to distinguish implementation structure from experimentally validated behavior.
-
 # /understand-dashboard
 
-Start the Understand Anything dashboard to visualize the knowledge graph for the current project.
+Use this installed edition's viewer to browse an existing project graph or artifact catalog. For engineering project maintenance, also read [../understand/engineering/guide.md](../understand/engineering/guide.md). Preserve the upstream graph schema and analysis/update workflow.
 
-## Instructions
+## Launch
 
-1. Determine the project directory and data directory:
-   - If `$ARGUMENTS` contains a path, use that as the project directory
-   - Otherwise, use the current working directory
-   - Prefer the legacy `.understand-anything/` data directory when it exists, otherwise use `.ua/`
+Resolve this skill's real directory, including symlinked installations. Its `scripts/open-dashboard.mjs` locates the matching plugin and viewer relative to itself.
 
-   Use the Bash tool to resolve:
-   ```bash
-   PROJECT_ARG="$ARGUMENTS"
-   if [ -n "$PROJECT_ARG" ]; then
-     PROJECT_DIR=$(cd "$PROJECT_ARG" 2>/dev/null && pwd -P)
-   else
-     PROJECT_DIR=$(pwd -P)
-   fi
+```bash
+node "<skill-directory>/scripts/open-dashboard.mjs" "/absolute/project/path"
+```
 
-   if [ -z "$PROJECT_DIR" ] || [ ! -d "$PROJECT_DIR" ]; then
-     echo "Error: Project directory not found: ${PROJECT_ARG:-$PWD}"
-     exit 1
-   fi
+The project defaults to the invoking working directory. Node.js 18 or later runs a built viewer. A source installation needs `pnpm install --frozen-lockfile` in the repository before its first build. The launcher builds a missing embedded viewer automatically. After dashboard source changes, add `--build` to refresh it.
 
-   if [ -d "$PROJECT_DIR/.understand-anything" ]; then
-     UA_DIR="$PROJECT_DIR/.understand-anything"
-   else
-     UA_DIR="$PROJECT_DIR/.ua"
-   fi
-   ```
+- For graph browsing, require `knowledge-graph.json` in `.ua/` or legacy `.understand-anything/`. Generate missing analysis through `/understand`.
+- For Demo browsing with an existing `artifacts.json`, add `--artifacts-only`. This mode supports a project containing only the artifact catalog.
+- The viewer prefers the legacy directory when it contains the requested data file, then checks `.ua/`.
+- `--no-open` prints the URL for manual opening. `--port 0` selects an available port. The default port is 5173 and increments when occupied.
+- Run in a persistent terminal or background process when the user needs continued access. Capture and return the full printed `Dashboard URL`, including its `?token=` parameter. Tokens belong in runtime output.
+- The process runs until stopped with Ctrl+C. Use the maintained local viewer for this edition's file-opening behavior.
 
-2. For an architecture dashboard, check that `$UA_DIR/knowledge-graph.json` exists in the project directory. If the user wants only Demo/artifact browsing and `$UA_DIR/artifacts.json` exists, use the local viewer's `--artifacts-only` mode instead: resolve the plugin root in step 3, then run `node "$PLUGIN_ROOT/packages/viewer/bin/viewer.mjs" "$PROJECT_DIR" --artifacts-only --no-open` and continue at step 7. This mode needs the installed local viewer; do not replace it with a downloaded release or create a placeholder graph. Otherwise, if the graph is missing, tell the user:
-   ```
-   No knowledge graph found. Run /understand first to analyze this project.
-   ```
+## Demo files open in VS Code
 
-   Use the Bash tool to check:
-   ```bash
-   if [ ! -f "$UA_DIR/knowledge-graph.json" ]; then
-     echo "No knowledge graph found. Run /understand first to analyze this project."
-     exit 1
-   fi
-   ```
+Apply this behavior to Demo card file titles, related-file buttons and files in the artifact directory browser, including documents, models, data and videos.
 
-3. Find the dashboard code. The dashboard is at `packages/dashboard/` relative to this plugin's root directory. Check these paths in order and use the first that exists:
-   - `${CLAUDE_PLUGIN_ROOT}/packages/dashboard/` (Claude Code runtime root, highest priority)
-   - `~/.understand-anything-plugin/packages/dashboard/` (universal symlink, all installs)
-   - Two levels up from `~/.agents/skills/understand-dashboard` real path (self-relative fallback)
-   - Two levels up from `~/.copilot/skills/understand-dashboard` real path (Copilot personal skills fallback)
-   - Common clone-based install roots:
-     - `~/.codex/understand-anything/understand-anything-plugin/packages/dashboard/`
-     - `~/.opencode/understand-anything/understand-anything-plugin/packages/dashboard/`
-     - `~/.pi/understand-anything/understand-anything-plugin/packages/dashboard/`
-     - `~/understand-anything/understand-anything-plugin/packages/dashboard/`
+1. A file button submits a same-origin POST to `/artifacts/open-file`, carrying the access token and project-relative file path.
+2. The local viewer validates the token, exact Origin, allowed artifact roots and resolved project containment, then invokes `code --reuse-window -- <absolute-file-path>` with an argument array.
+3. A successful command returns the user to the catalog or directory page. Failed commands display an actionable error.
 
-   Use the Bash tool to resolve:
-   ```bash
-   SKILL_REAL=$(realpath ~/.agents/skills/understand-dashboard 2>/dev/null || readlink -f ~/.agents/skills/understand-dashboard 2>/dev/null || echo "")
-   SELF_RELATIVE=$([ -n "$SKILL_REAL" ] && cd "$SKILL_REAL/../.." 2>/dev/null && pwd || echo "")
-   COPILOT_SKILL_REAL=$(realpath ~/.copilot/skills/understand-dashboard 2>/dev/null || readlink -f ~/.copilot/skills/understand-dashboard 2>/dev/null || echo "")
-   COPILOT_SELF_RELATIVE=$([ -n "$COPILOT_SKILL_REAL" ] && cd "$COPILOT_SKILL_REAL/../.." 2>/dev/null && pwd || echo "")
+The `code` executable must be available on the viewer process's PATH. It opens files in the VS Code environment on the machine running the viewer. For Remote SSH, verify the CLI is attached to the intended remote VS Code session. Browser location alone does not select the editor host.
 
-   PLUGIN_ROOT=""
-   for candidate in \
-     "${CLAUDE_PLUGIN_ROOT}" \
-     "$HOME/.understand-anything-plugin" \
-     "$SELF_RELATIVE" \
-     "$COPILOT_SELF_RELATIVE" \
-     "$HOME/.codex/understand-anything/understand-anything-plugin" \
-     "$HOME/.opencode/understand-anything/understand-anything-plugin" \
-     "$HOME/.pi/understand-anything/understand-anything-plugin" \
-     "$HOME/understand-anything/understand-anything-plugin"; do
-     if [ -n "$candidate" ] && [ -d "$candidate/packages/dashboard" ]; then
-       PLUGIN_ROOT="$candidate"; break
-     fi
-   done
+Directories navigate inside the dashboard. Inline image/video sources retain authenticated HTTP URLs. Video opening uses VS Code's installed preview capabilities. The graph's Markdown reader and code preview retain their existing navigation behavior.
 
-   if [ -z "$PLUGIN_ROOT" ]; then
-     echo "Error: Cannot find the understand-anything plugin root."
-     echo "Checked:"
-     echo "  - ${CLAUDE_PLUGIN_ROOT:-<unset CLAUDE_PLUGIN_ROOT>}"
-     echo "  - $HOME/.understand-anything-plugin"
-     echo "  - ${SELF_RELATIVE:-<unresolved path derived from ~/.agents/skills/understand-dashboard>}"
-     echo "  - ${COPILOT_SELF_RELATIVE:-<unresolved path derived from ~/.copilot/skills/understand-dashboard>}"
-     echo "  - $HOME/.codex/understand-anything/understand-anything-plugin"
-     echo "  - $HOME/.opencode/understand-anything/understand-anything-plugin"
-     echo "  - $HOME/.pi/understand-anything/understand-anything-plugin"
-     echo "  - $HOME/understand-anything/understand-anything-plugin"
-     echo "Make sure you followed the installation instructions for your platform."
-     exit 1
-   fi
+When extending the viewer, preserve file-button POSTs, shell-free argument passing and existing project-path checks. The implementation is maintained in `packages/viewer/bin/viewer.mjs`. Project catalogs store relative file paths. Additional artifact directories are configured through `artifactRoots` in the active data directory's `config.json`.
 
-   DASHBOARD_DIR="$PLUGIN_ROOT/packages/dashboard"
-   ```
+## Verification
 
-4. **Fast path — try the prebuilt viewer first (no install, no build).** Each release ships a self-contained viewer tarball; run it pinned to the installed plugin version:
-   ```bash
-   : "${PLUGIN_ROOT:?Run step 3 first so PLUGIN_ROOT is set}"
-   : "${PROJECT_DIR:?Run step 1 first so PROJECT_DIR is set}"
-   PLUGIN_VERSION=$(node -p "require('$PLUGIN_ROOT/package.json').version")
-   VIEWER_URL="https://github.com/Egonex-AI/Understand-Anything/releases/download/v${PLUGIN_VERSION}/understand-anything-viewer.tgz"
-   npx --yes "$VIEWER_URL" "$PROJECT_DIR"
-   ```
-   Run this in the background. It prints the same `🔑  Dashboard URL` line as the dev server:
-   - If the line appears, **skip steps 5-6** and continue at step 7.
-   - If the process exits without printing it (no release asset for this version, or no network), fall back to steps 5-6.
+Check the launcher's help and a real startup. For file-opening changes, verify a same-origin POST invokes the CLI with the exact file path and returns 303. Also check missing/invalid tokens, foreign or null Origin, directories, traversal and escaping symlinks. A CLI exit code confirms command dispatch. Verify the editor view or video playback separately when requested.
 
-5. Fallback: install dependencies and build if needed:
-   ```bash
-   : "${PLUGIN_ROOT:?Run step 3 first so PLUGIN_ROOT is set}"
-   DASHBOARD_DIR="${DASHBOARD_DIR:-$PLUGIN_ROOT/packages/dashboard}"
-   cd "$DASHBOARD_DIR" && (pnpm install --frozen-lockfile 2>/dev/null || pnpm install)
-   ```
-   Then ensure the core package is built (the dashboard depends on it):
-   ```bash
-   : "${PLUGIN_ROOT:?Run step 3 first so PLUGIN_ROOT is set}"
-   cd "$PLUGIN_ROOT" && pnpm --filter @understand-anything/core build
-   ```
+## Demo display controls
 
-6. Fallback: start the Vite dev server pointing at the project's knowledge graph:
-   ```bash
-   : "${PROJECT_DIR:?Run step 1 first so PROJECT_DIR is set}"
-   : "${DASHBOARD_DIR:?Run step 5 first so DASHBOARD_DIR is set}"
-   cd "$DASHBOARD_DIR" && GRAPH_DIR="$PROJECT_DIR" npx vite --host 127.0.0.1
-   ```
-   Run this in the background so the user can continue working.
+The Demo portal saves ordering and hidden groups in `artifact-display.json`, separately from the `artifacts.json` catalog. Preserve existing preferences during updates. Moving, hiding and restoring groups changes their display entries.
 
-7. **Capture the access token URL from the server output.** The server (viewer or Vite) prints a line like:
-   ```
-   🔑  Dashboard URL: http://127.0.0.1:<PORT>?token=<TOKEN>
-   ```
-   Extract the full URL including the `?token=` parameter. The token is required to access the knowledge graph data — without it the dashboard will show an "Access Token Required" gate.
-
-8. Report to the user, including the full tokenized URL:
-   ```
-   Dashboard started at http://127.0.0.1:<PORT>?token=<TOKEN>
-   Viewing: $UA_DIR/knowledge-graph.json
-
-   The dashboard is running in the background. Press Ctrl+C in the terminal to stop it.
-   ```
-   **Important:** Always include the `?token=` parameter in the URL you share. If you omit it, the user will be blocked by the token gate and have to manually find the token in the terminal output.
-   For artifacts-only mode, share the printed `/artifacts/?token=...` URL and identify `artifacts.json` as the catalog. Keep tokens in runtime output, outside committed project files.
-
-## Notes
-
-- The fast path (step 4) downloads a version-pinned, self-contained viewer from the GitHub release — nothing is installed into the plugin directory and no build runs
-- The dashboard auto-opens in the default browser (both the viewer and Vite's `--open`)
-- If port 5173 is already in use, the next available port is picked (both paths)
-- In the fallback, the `GRAPH_DIR` environment variable tells the dev server where to find the knowledge graph
-
-## Demo display controls (local viewer)
-
-The Demo portal stores ordering and hidden groups in the selected data directory's `artifact-display.json`, separately from the `artifacts.json` evidence catalog. Moving, hiding or restoring a group must preserve the catalog and output files. Preserve existing preferences when redeploying the viewer.
-
-When checking these controls, exercise form POSTs with the page's actual same-origin `Origin`, follow the 303 redirect, and reload to verify persistence. Cookie-only, foreign-origin and `Origin: null` writes must remain rejected. A page-wide `Referrer-Policy: no-referrer` can make ordinary browser form POSTs send `Origin: null`; the viewer's HTML pages use `same-origin` to preserve local form submissions without sending referrers to other sites. Diagnose the response policy before changing token/origin validation. After a code fix, confirm the service uses that viewer binary and restart it if required.
+Exercise display forms with the page's actual same-origin Origin, follow the 303 response and reload to verify persistence. Preserve `Referrer-Policy: same-origin` on HTML pages so browser POSTs carry the local Origin. Data responses use `no-referrer`. After viewer fixes, check the running service's binary and restart the affected service when needed.
